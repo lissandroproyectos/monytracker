@@ -9,6 +9,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build Android APK
@@ -32,6 +35,20 @@ jobs:
           fi
           if [ -f ./gradlew ]; then
             chmod +x gradlew
+          fi
+
+      - name: Prepare Android Keystore and Configuration
+        run: |
+          touch .env
+          # Ensure debug.keystore exists so validateSigningDebug passes
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          elif [ ! -f debug.keystore ]; then
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          # Ensure google-services.json exists for the Google Services Gradle plugin
+          if [ ! -f app/google-services.json ]; then
+            echo '{"project_info":{"project_number":"166010243644","project_id":"caribbou-net-storage-manager","storage_bucket":"caribbou-net-storage-manager.firebasestorage.app"},"client":[{"client_info":{"mobilesdk_app_id":"1:166010243644:android:3a6b97d46cc88ec4a15139","android_client_info":{"package_name":"com.aistudio.finanzas.kpwrzq"}},"oauth_client":[],"api_key":[{"current_key":"dummy"}],"services":{"analytics_service":{"status":1}}}]}' > app/google-services.json
           fi
 
       - name: Build Debug APK
@@ -68,8 +85,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ env.APK_PATH }}
-          tag_name: ${{ github.ref_name || 'v1.0.0' }}
-          name: Release ${{ github.ref_name || 'v1.0.0' }}
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v1.0.{0}', github.run_number) }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('Release v1.0.{0}', github.run_number) }}
           draft: false
           prerelease: false
           generate_release_notes: true
