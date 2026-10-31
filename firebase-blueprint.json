@@ -1,0 +1,101 @@
+{
+  "entities": {
+    "Account": {
+      "title": "Account",
+      "description": "Financial account or wallet belonging to a user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "ID of the user who owns this account" },
+        "name": { "type": "string", "description": "Account name (e.g. Cash, Bank of America)" },
+        "type": { "type": "string", "enum": ["CASH", "BANK", "CREDIT_CARD", "DIGITAL_WALLET", "SAVINGS"], "description": "Type of financial account" },
+        "currentBalance": { "type": "number", "description": "Current balance available in the account" },
+        "initialBalance": { "type": "number", "description": "Starting balance when account was created" },
+        "currency": { "type": "string", "description": "Currency symbol or code, e.g. USD or $" },
+        "colorHex": { "type": "string", "description": "Hex color code for visual distinction" },
+        "iconName": { "type": "string", "description": "Icon identifier for the account" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "type", "currentBalance", "currency", "createdAt"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Income, expense, or transfer transaction",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "ID of the user who owns this transaction" },
+        "accountId": { "type": "string", "description": "Originating or target account ID" },
+        "targetAccountId": { "type": "string", "description": "Destination account ID in transfers" },
+        "type": { "type": "string", "enum": ["INCOME", "EXPENSE", "TRANSFER"], "description": "Movement classification" },
+        "amount": { "type": "number", "description": "Transaction monetary amount (positive)" },
+        "category": { "type": "string", "description": "Category for classification" },
+        "description": { "type": "string", "description": "Brief description of the transaction" },
+        "date": { "type": "string", "format": "date-time", "description": "Date of transaction" },
+        "notes": { "type": "string", "description": "Additional notes" },
+        "commitmentId": { "type": "string", "description": "Linked planned expense or installment ID" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "accountId", "type", "amount", "category", "description", "createdAt"]
+    },
+    "ExpenseCommitment": {
+      "title": "ExpenseCommitment",
+      "description": "Planned expense, debt, or commitment payable in full, partials, or installments",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner user ID" },
+        "title": { "type": "string", "description": "Title or reason of the expense commitment" },
+        "totalAmount": { "type": "number", "description": "Total original amount of the expense" },
+        "remainingAmount": { "type": "number", "description": "Pending amount remaining to be paid" },
+        "paymentMode": { "type": "string", "enum": ["FULL", "PARTIAL", "INSTALLMENTS"], "description": "Payment modality" },
+        "category": { "type": "string", "description": "Expense category" },
+        "totalInstallments": { "type": "integer", "description": "Total number of installments (1 for full)" },
+        "paidInstallments": { "type": "integer", "description": "Count of installments completed so far" },
+        "installmentAmount": { "type": "number", "description": "Fixed amount per installment" },
+        "frequency": { "type": "string", "enum": ["MONTHLY", "BIWEEKLY", "WEEKLY", "CUSTOM"], "description": "Installment schedule frequency" },
+        "dueDate": { "type": "string", "format": "date-time", "description": "Next due date" },
+        "status": { "type": "string", "enum": ["ACTIVE", "PAID_OFF", "OVERDUE"], "description": "Commitment progress status" },
+        "accountId": { "type": "string", "description": "Default payment account" },
+        "notes": { "type": "string", "description": "Optional notes" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "totalAmount", "remainingAmount", "paymentMode", "category", "status", "createdAt"]
+    },
+    "InstallmentPayment": {
+      "title": "InstallmentPayment",
+      "description": "Log of a payment made towards an expense commitment",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner user ID" },
+        "commitmentId": { "type": "string", "description": "Target expense commitment ID" },
+        "accountId": { "type": "string", "description": "Account from which funds were debited" },
+        "amount": { "type": "number", "description": "Payment amount" },
+        "installmentNumber": { "type": "integer", "description": "Installment index paid (0 for partial)" },
+        "paymentDate": { "type": "string", "format": "date-time", "description": "When payment was executed" },
+        "notes": { "type": "string", "description": "Payment memo or receipt reference" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "commitmentId", "accountId", "amount", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/accounts/{accountId}": {
+      "schema": { "$ref": "#/entities/Account" },
+      "description": "User accounts and balances"
+    },
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "Income, expense, and transfer records"
+    },
+    "/users/{userId}/commitments/{commitmentId}": {
+      "schema": { "$ref": "#/entities/ExpenseCommitment" },
+      "description": "Full, partial, and installment planned expenses"
+    },
+    "/users/{userId}/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/InstallmentPayment" },
+      "description": "Payment receipts recorded against commitments"
+    }
+  }
+}

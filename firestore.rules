@@ -1,0 +1,190 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isValidAccount(data) {
+      return isValidString(data.name, 1, 50) &&
+             data.type in ['CASH', 'BANK', 'CREDIT_CARD', 'DIGITAL_WALLET', 'SAVINGS'] &&
+             data.currentBalance is number &&
+             data.currency is string && data.currency.size() <= 10 &&
+             (!('initialBalance' in data) || data.initialBalance is number) &&
+             (!('colorHex' in data) || (data.colorHex is string && data.colorHex.size() <= 10)) &&
+             (!('iconName' in data) || (data.iconName is string && data.iconName.size() <= 50)) &&
+             (!('isSavings' in data) || data.isSavings is bool) &&
+             (!('hasPeriodicIncome' in data) || data.hasPeriodicIncome is bool) &&
+             (!('periodicIncomeAmount' in data) || (data.periodicIncomeAmount is number && data.periodicIncomeAmount >= 0)) &&
+             (!('periodicIncomeCurrency' in data) || (data.periodicIncomeCurrency is string && data.periodicIncomeCurrency.size() <= 10)) &&
+             (!('periodicIncomeFrequency' in data) || (data.periodicIncomeFrequency is string && data.periodicIncomeFrequency.size() <= 30)) &&
+             (!('periodicIncomeDayOfMonth' in data) || (data.periodicIncomeDayOfMonth is int && data.periodicIncomeDayOfMonth >= 1 && data.periodicIncomeDayOfMonth <= 31)) &&
+             (!('periodicIncomeDescription' in data) || (data.periodicIncomeDescription is string && data.periodicIncomeDescription.size() <= 100));
+    }
+
+    function isValidTransaction(data) {
+      return isValidString(data.description, 1, 120) &&
+             data.amount is number && data.amount > 0 &&
+             data.type in ['INCOME', 'EXPENSE', 'TRANSFER'] &&
+             isValidString(data.category, 1, 50) &&
+             isValidString(data.accountId, 1, 100) &&
+             (!('currency' in data) || (data.currency is string && data.currency.size() <= 10)) &&
+             (!('amountInBs' in data) || data.amountInBs is number) &&
+             (!('isFixedExpense' in data) || data.isFixedExpense is bool) &&
+             (!('targetAccountId' in data) || (data.targetAccountId is string && data.targetAccountId.size() <= 100)) &&
+             (!('date' in data) || data.date is timestamp) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 500)) &&
+             (!('commitmentId' in data) || (data.commitmentId is string && data.commitmentId.size() <= 100));
+    }
+
+    function isValidCommitment(data) {
+      return isValidString(data.title, 1, 100) &&
+             data.totalAmount is number && data.totalAmount > 0 &&
+             data.remainingAmount is number && data.remainingAmount >= 0 &&
+             data.paymentMode in ['FULL', 'PARTIAL', 'INSTALLMENTS'] &&
+             isValidString(data.category, 1, 50) &&
+             data.status in ['ACTIVE', 'PAID_OFF', 'OVERDUE'] &&
+             (!('currency' in data) || (data.currency is string && data.currency.size() <= 10)) &&
+             (!('isFixedExpense' in data) || data.isFixedExpense is bool) &&
+             (!('startDate' in data) || data.startDate is timestamp) &&
+             (!('endDate' in data) || data.endDate is timestamp) &&
+             (!('totalInstallments' in data) || (data.totalInstallments is int && data.totalInstallments >= 1)) &&
+             (!('paidInstallments' in data) || (data.paidInstallments is int && data.paidInstallments >= 0)) &&
+             (!('installmentAmount' in data) || (data.installmentAmount is number && data.installmentAmount >= 0)) &&
+             (!('frequency' in data) || data.frequency in ['MONTHLY', 'BIWEEKLY', 'WEEKLY', 'CUSTOM']) &&
+             (!('dueDate' in data) || data.dueDate is timestamp) &&
+             (!('accountId' in data) || (data.accountId is string && data.accountId.size() <= 100)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 500)) &&
+             (!('installments' in data) || (data.installments is list && data.installments.size() <= 60));
+    }
+
+    function isValidPayment(data) {
+      return isValidString(data.commitmentId, 1, 100) &&
+             isValidString(data.accountId, 1, 100) &&
+             data.amount is number && data.amount > 0 &&
+             (!('currency' in data) || (data.currency is string && data.currency.size() <= 10)) &&
+             (!('installmentNumber' in data) || (data.installmentNumber is int && data.installmentNumber >= 0)) &&
+             (!('paymentDate' in data) || data.paymentDate is timestamp) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 500));
+    }
+
+    function isValidMarketTemplate(data) {
+      return isValidString(data.title, 1, 100) &&
+             isValidString(data.category, 1, 50) &&
+             data.paymentMode in ['FULL', 'PARTIAL', 'INSTALLMENTS'] &&
+             isValidString(data.frequency, 1, 30) &&
+             data.installmentsCount is int && data.installmentsCount >= 1 &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 500)) &&
+             (!('creatorName' in data) || (data.creatorName is string && data.creatorName.size() <= 50)) &&
+             (!('upvotes' in data) || data.upvotes is int);
+    }
+
+    match /users/{userId} {
+      allow get, list: if isOwner(userId);
+      allow create, update, delete: if isOwner(userId);
+
+      match /settings/{settingId} {
+        allow get, list: if isOwner(userId);
+        allow create, update, delete: if isOwner(userId);
+      }
+
+      match /accounts/{accountId} {
+        allow get, list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         incoming().userId == userId &&
+                         incoming().createdAt is timestamp &&
+                         isValidAccount(incoming());
+
+        allow update: if isOwner(userId) &&
+                         incoming().userId == userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidAccount(incoming());
+
+        allow delete: if isOwner(userId);
+      }
+
+      match /transactions/{transactionId} {
+        allow get, list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         incoming().userId == userId &&
+                         incoming().createdAt is timestamp &&
+                         isValidTransaction(incoming());
+
+        allow update: if isOwner(userId) &&
+                         incoming().userId == userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidTransaction(incoming());
+
+        allow delete: if isOwner(userId);
+      }
+
+      match /commitments/{commitmentId} {
+        allow get, list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         incoming().userId == userId &&
+                         incoming().createdAt is timestamp &&
+                         isValidCommitment(incoming());
+
+        allow update: if isOwner(userId) &&
+                         incoming().userId == userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidCommitment(incoming());
+
+        allow delete: if isOwner(userId);
+      }
+
+      match /payments/{paymentId} {
+        allow get, list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         incoming().userId == userId &&
+                         incoming().createdAt is timestamp &&
+                         isValidPayment(incoming());
+
+        allow update: if isOwner(userId) &&
+                         incoming().userId == userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidPayment(incoming());
+
+        allow delete: if isOwner(userId);
+      }
+
+      match /backups/{backupId} {
+        allow get, list: if isOwner(userId);
+        allow create, update, delete: if isOwner(userId);
+      }
+    }
+
+    match /market_templates/{templateId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() &&
+                       incoming().createdAt is timestamp &&
+                       incoming().userId == request.auth.uid &&
+                       isValidMarketTemplate(incoming());
+      allow update: if isSignedIn() &&
+                       (incoming().userId == request.auth.uid ||
+                        incoming().diff(existing()).affectedKeys().hasOnly(['upvotes']));
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+  }
+}

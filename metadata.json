@@ -1,0 +1,6 @@
+{
+  "name": "Finanzas",
+  "description": "Gestión integral de cuentas, ingresos, egresos y control de pagos completos, parciales y por cuotas planificadas",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

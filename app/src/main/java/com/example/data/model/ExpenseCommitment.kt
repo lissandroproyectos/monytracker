@@ -1,0 +1,152 @@
+package com.example.data.model
+
+import com.example.data.currency.AppCurrency
+import com.google.firebase.Timestamp
+import com.google.firebase.firestore.DocumentId
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.IgnoreExtraProperties
+import com.google.firebase.firestore.ServerTimestamp
+import java.util.Calendar
+import java.util.Date
+
+enum class PaymentMode(val displayName: String, val description: String) {
+    FULL("Pago Completo", "1 pago único en fecha prevista"),
+    PARTIAL("Pagos Parciales", "Abonos flexibles según disponibilidad"),
+    INSTALLMENTS("Cuotas Planificadas", "Cuotas fijas periódicas (mensual/quincenal/semanal)")
+}
+
+enum class CommitmentStatus(val displayName: String) {
+    ACTIVE("Activo"),
+    PAID_OFF("Completado / Pagado"),
+    OVERDUE("Vencido")
+}
+
+enum class Frequency(val displayName: String, val daysInterval: Int) {
+    WEEKLY("Semanal", 7),
+    BIWEEKLY("Quincenal", 15),
+    MONTHLY("Mensual", 30),
+    CUSTOM("Personalizado", 30)
+}
+
+data class ProjectedInstallment(
+    val number: Long = 1L,
+    val dueDate: Timestamp = Timestamp.now(),
+    val amount: Double = 0.0,
+    val isPaid: Boolean = false,
+    val paidDate: Timestamp? = null
+) {
+    fun toMap(): Map<String, Any?> = mapOf(
+        "number" to number,
+        "dueDate" to dueDate,
+        "amount" to amount,
+        "isPaid" to isPaid,
+        "paidDate" to paidDate
+    )
+
+    companion object {
+        fun fromMap(map: Map<String, Any?>): ProjectedInstallment {
+            return ProjectedInstallment(
+                number = (map["number"] as? Number)?.toLong() ?: 1L,
+                dueDate = map["dueDate"] as? Timestamp ?: Timestamp.now(),
+                amount = (map["amount"] as? Number)?.toDouble() ?: 0.0,
+                isPaid = map["isPaid"] as? Boolean ?: false,
+                paidDate = map["paidDate"] as? Timestamp
+            )
+        }
+    }
+}
+
+@IgnoreExtraProperties
+data class ExpenseCommitment(
+    @DocumentId val id: String = "",
+    val userId: String = "",
+    val title: String = "",
+    val totalAmount: Double = 0.0,
+    val remainingAmount: Double = 0.0,
+    val paymentMode: String = PaymentMode.INSTALLMENTS.name,
+    val category: String = "General",
+    val isFixedExpense: Boolean = false, // true = Gasto Fijo recurrente, false = Deuda temporal / cuotas
+    val currency: String = AppCurrency.USD_BCV.name,
+    val totalInstallments: Long = 1L,
+    val paidInstallments: Long = 0L,
+    val installmentAmount: Double = 0.0,
+    val interestRate: Double = 0.0,
+    val frequency: String = Frequency.MONTHLY.name,
+    val startDate: Timestamp = Timestamp.now(),
+    val endDate: Timestamp? = null,
+    val dueDate: Timestamp = Timestamp.now(),
+    val status: String = CommitmentStatus.ACTIVE.name,
+    val accountId: String? = null,
+    val notes: String? = null,
+    val installments: List<Map<String, Any?>> = emptyList(),
+    @ServerTimestamp val createdAt: Timestamp? = null,
+    @ServerTimestamp val updatedAt: Timestamp? = null
+) {
+    val progressPercentage: Float
+        get() {
+            if (totalAmount <= 0.0) return 1f
+            val paid = (totalAmount - remainingAmount).coerceAtLeast(0.0)
+            return (paid / totalAmount).toFloat().coerceIn(0f, 1f)
+        }
+
+    fun getProjectedInstallments(): List<ProjectedInstallment> {
+        if (installments.isNotEmpty()) {
+            return installments.map { ProjectedInstallment.fromMap(it) }
+        }
+        // Auto-generate projections if not stored
+        val list = mutableListOf<ProjectedInstallment>()
+        val freq = Frequency.entries.find { it.name == frequency } ?: Frequency.MONTHLY
+        val startCal = Calendar.getInstance().apply { time = startDate.toDate() }
+        val count = totalInstallments.toInt().coerceAtLeast(1)
+        val singleAmount = if (installmentAmount > 0) installmentAmount else (if (count > 0) totalAmount / count else totalAmount)
+
+        for (i in 1..count) {
+            val dueCal = startCal.clone() as Calendar
+            when (freq) {
+                Frequency.WEEKLY -> dueCal.add(Calendar.WEEK_OF_YEAR, i)
+                Frequency.BIWEEKLY -> dueCal.add(Calendar.DAY_OF_YEAR, i * 15)
+                Frequency.MONTHLY -> dueCal.add(Calendar.MONTH, i)
+                Frequency.CUSTOM -> dueCal.add(Calendar.MONTH, i)
+            }
+            val isAlreadyPaid = i <= paidInstallments
+            list.add(
+                ProjectedInstallment(
+                    number = i.toLong(),
+                    dueDate = Timestamp(dueCal.time),
+                    amount = singleAmount,
+                    isPaid = isAlreadyPaid,
+                    paidDate = if (isAlreadyPaid) Timestamp(dueCal.time) else null
+                )
+            )
+        }
+        return list
+    }
+
+    fun toMap(): Map<String, Any> {
+        val map = mutableMapOf<String, Any?>(
+            "userId" to userId,
+            "title" to title,
+            "totalAmount" to totalAmount,
+            "remainingAmount" to remainingAmount,
+            "paymentMode" to paymentMode,
+            "category" to category,
+            "isFixedExpense" to isFixedExpense,
+            "currency" to currency,
+            "totalInstallments" to totalInstallments,
+            "paidInstallments" to paidInstallments,
+            "installmentAmount" to installmentAmount,
+            "interestRate" to interestRate,
+            "frequency" to frequency,
+            "startDate" to startDate,
+            "endDate" to endDate,
+            "dueDate" to dueDate,
+            "status" to status,
+            "accountId" to accountId,
+            "notes" to notes,
+            "installments" to installments,
+            "createdAt" to (createdAt ?: FieldValue.serverTimestamp()),
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        return map.filterValues { it != null }.mapValues { it.value!! }
+    }
+}
