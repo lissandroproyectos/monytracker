@@ -48,7 +48,7 @@ jobs:
           fi
           # Ensure google-services.json exists for the Google Services Gradle plugin
           if [ ! -f app/google-services.json ]; then
-            echo '{"project_info":{"project_number":"166010243644","project_id":"caribbou-net-storage-manager","storage_bucket":"caribbou-net-storage-manager.firebasestorage.app"},"client":[{"client_info":{"mobilesdk_app_id":"1:166010243644:android:3a6b97d46cc88ec4a15139","android_client_info":{"package_name":"com.aistudio.finanzas.kpwrzq"}},"oauth_client":[],"api_key":[{"current_key":"dummy"}],"services":{"analytics_service":{"status":1}}}]}' > app/google-services.json
+            echo '{"project_info":{"project_number":"166010243644","project_id":"caribbou-net-storage-manager","storage_bucket":"caribbou-net-storage-manager.firebasestorage.app"},"client":[{"client_info":{"mobilesdk_app_id":"1:166010243644:android:3a6b97d46cc88ec4a15139","android_client_info":{"package_name":"com.aistudio.finanzas.kpwrzq"}},"oauth_client":[{"client_id":"166010243644-q8chp7cgoo1ltng0fi7u3h8gi9jm8hhr.apps.googleusercontent.com","client_type":3}],"api_key":[{"current_key":"dummy"}],"services":{"analytics_service":{"status":1}}}]}' > app/google-services.json
           fi
 
       - name: Build Debug APK

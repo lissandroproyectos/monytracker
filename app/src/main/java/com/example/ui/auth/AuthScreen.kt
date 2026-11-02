@@ -85,9 +85,19 @@ fun AuthScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     fun launchGoogleSignIn() {
-        val webClientId = try {
-            context.getString(R.string.default_web_client_id)
-        } catch (e: Exception) {
+        val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+        val webClientId = if (resId != 0) {
+            try {
+                context.getString(resId)
+            } catch (e: Exception) {
+                ""
+            }
+        } else {
+            // Fallback web client ID from project configuration
+            "166010243644-q8chp7cgoo1ltng0fi7u3h8gi9jm8hhr.apps.googleusercontent.com"
+        }
+
+        if (webClientId.isBlank()) {
             errorMessage = "Configuración de Google Sign-In no encontrada"
             return
         }
