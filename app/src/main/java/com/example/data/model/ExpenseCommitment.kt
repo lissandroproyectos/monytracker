@@ -70,6 +70,7 @@ data class ExpenseCommitment(
     val totalInstallments: Long = 1L,
     val paidInstallments: Long = 0L,
     val installmentAmount: Double = 0.0,
+    val downPayment: Double = 0.0,
     val interestRate: Double = 0.0,
     val isAnnualInterest: Boolean = false,
     val customDays: Int = 30,
@@ -100,7 +101,8 @@ data class ExpenseCommitment(
         val freq = Frequency.entries.find { it.name == frequency } ?: Frequency.MONTHLY
         val startCal = Calendar.getInstance().apply { time = startDate.toDate() }
         val count = totalInstallments.toInt().coerceAtLeast(1)
-        val singleAmount = if (installmentAmount > 0) installmentAmount else (if (count > 0) totalAmount / count else totalAmount)
+        val financedAmount = (totalAmount - downPayment).coerceAtLeast(0.0)
+        val singleAmount = if (installmentAmount > 0) installmentAmount else (if (count > 0) financedAmount / count else financedAmount)
 
         for (i in 1..count) {
             val dueCal = startCal.clone() as Calendar
@@ -137,6 +139,7 @@ data class ExpenseCommitment(
             "totalInstallments" to totalInstallments,
             "paidInstallments" to paidInstallments,
             "installmentAmount" to installmentAmount,
+            "downPayment" to downPayment,
             "interestRate" to interestRate,
             "isAnnualInterest" to isAnnualInterest,
             "customDays" to customDays,
