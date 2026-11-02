@@ -44,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.update.AppUpdateManager
 import com.example.data.update.GitHubReleaseInfo
 import com.example.ui.theme.EmeraldLight
@@ -91,13 +92,16 @@ fun AppUpdateDialog(
         checkForUpdates()
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(horizontal = 6.dp, vertical = 10.dp)
                 .testTag("app_update_dialog"),
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = SlateCard)
         ) {
             Column(

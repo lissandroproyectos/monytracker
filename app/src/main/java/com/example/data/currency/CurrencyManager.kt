@@ -16,17 +16,33 @@ enum class AppCurrency(
     val code: String,
     val displayName: String,
     val symbol: String,
-    val flagEmoji: String
+    val flagEmoji: String,
+    val symbolWithCode: String
 ) {
-    VES("VES", "Bolívares (Bs.)", "Bs.", "🇻🇪"),
-    USD_BCV("USD_BCV", "Dólar BCV Oficial", "$ BCV", "🏛️"),
-    USDT("USDT", "USDT / Paralelo", "USDT", "₮"),
-    EUR_BCV("EUR_BCV", "Euro BCV Oficial", "€ BCV", "🇪🇺");
+    VES("VES", "Bolívares (Bs.)", "Bs.", "🇻🇪", "Bs. VES"),
+    USD_BCV("USD_BCV", "Dólar ($)", "$", "💵", "$ USD"),
+    USDT("USDT", "USDT (₮)", "₮", "₮", "₮ USDT"),
+    EUR_BCV("EUR_BCV", "Euro (€)", "€", "💶", "€ EUR");
+
+    val shortLabel: String
+        get() = when (this) {
+            USD_BCV -> "$"
+            EUR_BCV -> "€"
+            USDT -> "₮"
+            VES -> "Bs."
+        }
 
     companion object {
         fun fromCode(code: String?): AppCurrency {
-            return entries.find { it.name.equals(code, ignoreCase = true) || it.code.equals(code, ignoreCase = true) }
-                ?: USD_BCV
+            if (code.isNullOrBlank()) return USD_BCV
+            val clean = code.trim().uppercase()
+            return when {
+                clean == "USD" || clean == "USD_BCV" || clean == "$" -> USD_BCV
+                clean == "USDT" || clean == "TETHER" || clean == "₮" -> USDT
+                clean == "EUR" || clean == "EUR_BCV" || clean == "€" -> EUR_BCV
+                clean == "VES" || clean == "BS" || clean == "BS." -> VES
+                else -> entries.find { it.name.equals(clean, ignoreCase = true) || it.code.equals(clean, ignoreCase = true) } ?: USD_BCV
+            }
         }
     }
 }

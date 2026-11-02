@@ -54,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.ui.FinanceViewModel
 import com.example.ui.theme.EmeraldDark
 import com.example.ui.theme.EmeraldLight
@@ -74,13 +75,16 @@ fun BackupRestoreDialog(
     var importJsonText by remember { mutableStateOf("") }
     var backupNote by remember { mutableStateOf("") }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(horizontal = 6.dp, vertical = 10.dp)
                 .testTag("backup_restore_dialog"),
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = SlateCard)
         ) {
             Column(

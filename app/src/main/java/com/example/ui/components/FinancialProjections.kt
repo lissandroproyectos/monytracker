@@ -65,6 +65,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.currency.AppCurrency
 import com.example.data.currency.ExchangeRates
 import com.example.data.model.Account
@@ -281,13 +282,16 @@ fun InstallmentsScheduleDialog(
     var selectedDebitAccountId by remember { mutableStateOf(accounts.firstOrNull()?.id ?: "") }
     val selectedAccount = accounts.find { it.id == selectedDebitAccountId }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp)
+                .padding(horizontal = 6.dp, vertical = 10.dp)
                 .testTag("installments_schedule_dialog"),
-            shape = RoundedCornerShape(22.dp),
+            shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = SlateCard)
         ) {
             Column(
@@ -450,13 +454,16 @@ fun CurrencySettingsDialog(
     var dispExpanded by remember { mutableStateOf(false) }
     var payExpanded by remember { mutableStateOf(false) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(horizontal = 6.dp, vertical = 10.dp)
                 .testTag("currency_settings_dialog"),
-            shape = RoundedCornerShape(22.dp),
+            shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = SlateCard)
         ) {
             Column(
@@ -500,7 +507,7 @@ fun CurrencySettingsDialog(
                     ) {
                         AppCurrency.entries.forEach { curr ->
                             DropdownMenuItem(
-                                text = { Text("${curr.flagEmoji} ${curr.displayName} (${curr.symbol})") },
+                                text = { Text("${curr.flagEmoji} ${curr.displayName}") },
                                 onClick = {
                                     displayCurrency = curr
                                     dispExpanded = false
@@ -529,7 +536,7 @@ fun CurrencySettingsDialog(
                     ) {
                         AppCurrency.entries.forEach { curr ->
                             DropdownMenuItem(
-                                text = { Text("${curr.flagEmoji} ${curr.displayName} (${curr.symbol})") },
+                                text = { Text("${curr.flagEmoji} ${curr.displayName}") },
                                 onClick = {
                                     paymentCurrency = curr
                                     payExpanded = false
@@ -597,13 +604,16 @@ fun TransferSavingsDialog(
     var fromExpanded by remember { mutableStateOf(false) }
     var toExpanded by remember { mutableStateOf(false) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(horizontal = 6.dp, vertical = 10.dp)
                 .testTag("transfer_savings_dialog"),
-            shape = RoundedCornerShape(22.dp),
+            shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = SlateCard)
         ) {
             Column(

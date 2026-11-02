@@ -56,6 +56,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.currency.AppCurrency
 import com.example.data.model.Account
 import com.example.data.model.AccountType
@@ -221,12 +222,6 @@ fun AddAccountDialog(
     var periodicIncomeAmountText by remember {
         mutableStateOf(if (accountToEdit != null && accountToEdit.hasPeriodicIncome) accountToEdit.periodicIncomeAmount.toString() else "")
     }
-    var periodicCurrency by remember {
-        mutableStateOf(
-            if (accountToEdit != null) AppCurrency.fromCode(accountToEdit.periodicIncomeCurrency)
-            else selectedCurrency
-        )
-    }
     var periodicFreq by remember { mutableStateOf(accountToEdit?.periodicIncomeFrequency ?: "QUINCENAL") }
     var periodicDayOfMonthText by remember {
         mutableStateOf((accountToEdit?.periodicIncomeDayOfMonth ?: 15).toString())
@@ -237,16 +232,18 @@ fun AddAccountDialog(
 
     var typeExpanded by remember { mutableStateOf(false) }
     var currExpanded by remember { mutableStateOf(false) }
-    var periodicCurrExpanded by remember { mutableStateOf(false) }
     var periodicFreqExpanded by remember { mutableStateOf(false) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(horizontal = 6.dp, vertical = 10.dp)
                 .testTag("add_account_dialog"),
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = SlateCard)
         ) {
             Column(
@@ -298,7 +295,7 @@ fun AddAccountDialog(
                     ) {
                         AppCurrency.entries.forEach { curr ->
                             DropdownMenuItem(
-                                text = { Text("${curr.flagEmoji} ${curr.displayName} (${curr.symbol})") },
+                                text = { Text("${curr.flagEmoji} ${curr.displayName}") },
                                 onClick = {
                                     selectedCurrency = curr
                                     currExpanded = false
@@ -402,48 +399,15 @@ fun AddAccountDialog(
                                 singleLine = true
                             )
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedTextField(
-                                    value = periodicIncomeAmountText,
-                                    onValueChange = { periodicIncomeAmountText = it },
-                                    label = { Text("Monto periódico") },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                    modifier = Modifier.weight(1.3f).testTag("periodic_income_amount_input"),
-                                    singleLine = true
-                                )
-
-                                ExposedDropdownMenuBox(
-                                    expanded = periodicCurrExpanded,
-                                    onExpandedChange = { periodicCurrExpanded = it },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    OutlinedTextField(
-                                        value = periodicCurrency.symbol,
-                                        onValueChange = {},
-                                        readOnly = true,
-                                        label = { Text("Moneda") },
-                                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = periodicCurrExpanded) },
-                                        modifier = Modifier.menuAnchor().fillMaxWidth()
-                                    )
-                                    ExposedDropdownMenu(
-                                        expanded = periodicCurrExpanded,
-                                        onDismissRequest = { periodicCurrExpanded = false }
-                                    ) {
-                                        AppCurrency.entries.forEach { c ->
-                                            DropdownMenuItem(
-                                                text = { Text("${c.flagEmoji} ${c.symbol} (${c.name})") },
-                                                onClick = {
-                                                    periodicCurrency = c
-                                                    periodicCurrExpanded = false
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                            OutlinedTextField(
+                                value = periodicIncomeAmountText,
+                                onValueChange = { periodicIncomeAmountText = it },
+                                label = { Text("Monto periódico (${selectedCurrency.displayName})") },
+                                prefix = { Text("${selectedCurrency.symbol} ") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.fillMaxWidth().testTag("periodic_income_amount_input"),
+                                singleLine = true
+                            )
 
                             ExposedDropdownMenuBox(
                                 expanded = periodicFreqExpanded,
@@ -565,7 +529,7 @@ fun AddAccountDialog(
                                         isSavings = isSavings,
                                         hasPeriodicIncome = hasPeriodicIncome,
                                         periodicIncomeAmount = parsedPeriodicAmount,
-                                        periodicIncomeCurrency = periodicCurrency.name,
+                                        periodicIncomeCurrency = selectedCurrency.name,
                                         periodicIncomeFrequency = periodicFreq,
                                         periodicIncomeDayOfMonth = parsedDay.coerceIn(1, 31),
                                         periodicIncomeDescription = periodicIncomeDesc.trim().ifBlank { "Sueldo" },
@@ -619,13 +583,16 @@ fun AddTransactionDialog(
     var targetAccountExpanded by remember { mutableStateOf(false) }
     var currExpanded by remember { mutableStateOf(false) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(horizontal = 6.dp, vertical = 10.dp)
                 .testTag("add_tx_dialog"),
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = SlateCard)
         ) {
             Column(
@@ -708,12 +675,13 @@ fun AddTransactionDialog(
                         modifier = Modifier.weight(1f)
                     ) {
                         OutlinedTextField(
-                            value = selectedCurrency.code,
+                            value = selectedCurrency.symbolWithCode,
                             onValueChange = {},
                             readOnly = true,
                             label = { Text("Moneda") },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = currExpanded) },
-                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                            modifier = Modifier.menuAnchor().fillMaxWidth(),
+                            singleLine = true
                         )
                         ExposedDropdownMenu(
                             expanded = currExpanded,
@@ -721,7 +689,7 @@ fun AddTransactionDialog(
                         ) {
                             AppCurrency.entries.forEach { c ->
                                 DropdownMenuItem(
-                                    text = { Text("${c.flagEmoji} ${c.symbol}") },
+                                    text = { Text("${c.flagEmoji} ${c.symbolWithCode} - ${c.displayName}") },
                                     onClick = {
                                         selectedCurrency = c
                                         currExpanded = false
@@ -914,8 +882,17 @@ fun AddCommitmentDialog(
     var installmentsCountText by remember {
         mutableStateOf((commitmentToEdit?.totalInstallments ?: 3L).toString())
     }
+    var applyInterest by remember {
+        mutableStateOf((commitmentToEdit?.interestRate ?: prefilledTemplate?.interestRate ?: 0.0) > 0.0)
+    }
+    var isAnnualInterest by remember {
+        mutableStateOf(commitmentToEdit?.isAnnualInterest ?: prefilledTemplate?.isAnnualInterest ?: false)
+    }
     var interestRateText by remember {
-        mutableStateOf((commitmentToEdit?.interestRate ?: prefilledTemplate?.interestRate ?: 0.0).let { if (it > 0) it.toString() else "0" })
+        mutableStateOf((commitmentToEdit?.interestRate ?: prefilledTemplate?.interestRate ?: 0.0).let { if (it > 0) it.toString() else "5.0" })
+    }
+    var customDaysText by remember {
+        mutableStateOf((commitmentToEdit?.customDays ?: prefilledTemplate?.customDays ?: 30).toString())
     }
     var frequency by remember {
         mutableStateOf(
@@ -940,7 +917,10 @@ fun AddCommitmentDialog(
     var customTemplateCategory by remember { mutableStateOf(CATEGORY_EXPENSES[0]) }
     var customTemplateFreq by remember { mutableStateOf(Frequency.BIWEEKLY) }
     var customTemplatePaymentMode by remember { mutableStateOf(PaymentMode.INSTALLMENTS) }
-    var customTemplateInterestText by remember { mutableStateOf("0") }
+    var customTemplateApplyInterest by remember { mutableStateOf(false) }
+    var customTemplateIsAnnual by remember { mutableStateOf(false) }
+    var customTemplateInterestText by remember { mutableStateOf("5.0") }
+    var customTemplateDaysText by remember { mutableStateOf("30") }
     var customTemplateDesc by remember { mutableStateOf("") }
 
     var freqExpanded by remember { mutableStateOf(false) }
@@ -950,16 +930,36 @@ fun AddCommitmentDialog(
     var customCatExpanded by remember { mutableStateOf(false) }
 
     val totalAmount = totalAmountText.toDoubleOrNull() ?: 0.0
-    val interestRate = interestRateText.toDoubleOrNull() ?: 0.0
+    val rawInterestRate = if (applyInterest) (interestRateText.toDoubleOrNull() ?: 0.0) else 0.0
     val totalInstallments = installmentsCountText.toLongOrNull() ?: 1L
-    val totalWithInterest = if (interestRate > 0) totalAmount * (1.0 + interestRate / 100.0) else totalAmount
+    val customDays = customDaysText.toIntOrNull()?.coerceAtLeast(1) ?: 30
+
+    val termInMonths = when (frequency) {
+        Frequency.WEEKLY -> (totalInstallments * 7.0) / 30.0
+        Frequency.BIWEEKLY -> (totalInstallments * 15.0) / 30.0
+        Frequency.MONTHLY -> totalInstallments.toDouble()
+        Frequency.CUSTOM -> (totalInstallments * customDays.toDouble()) / 30.0
+    }
+
+    val effectiveInterestRate = if (rawInterestRate > 0.0) {
+        if (isAnnualInterest) {
+            (rawInterestRate / 12.0) * termInMonths
+        } else {
+            rawInterestRate * termInMonths
+        }
+    } else 0.0
+
+    val totalWithInterest = if (effectiveInterestRate > 0) totalAmount * (1.0 + effectiveInterestRate / 100.0) else totalAmount
     val calculatedInstallmentAmount = if (totalInstallments > 0 && totalWithInterest > 0) totalWithInterest / totalInstallments else 0.0
 
     // Debt Type Template selector sub-dialog
     if (showTemplatePicker) {
-        Dialog(onDismissRequest = { showTemplatePicker = false; showCreateCustomTemplateForm = false }) {
+        Dialog(
+            onDismissRequest = { showTemplatePicker = false; showCreateCustomTemplateForm = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
             Card(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = SlateCard)
             ) {
@@ -1062,6 +1062,76 @@ fun AddCommitmentDialog(
                             )
                         }
 
+                        if (customTemplateFreq == Frequency.CUSTOM) {
+                            OutlinedTextField(
+                                value = customTemplateDaysText,
+                                onValueChange = { customTemplateDaysText = it },
+                                label = { Text("Días entre cada cuota (ej. 45)") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { customTemplateApplyInterest = !customTemplateApplyInterest }
+                                .padding(vertical = 2.dp)
+                        ) {
+                            Checkbox(
+                                checked = customTemplateApplyInterest,
+                                onCheckedChange = { customTemplateApplyInterest = it }
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "¿Aplica intereses?",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimaryDark
+                            )
+                        }
+
+                        if (customTemplateApplyInterest) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (!customTemplateIsAnnual) EmeraldPrimary else SlateBackground,
+                                    modifier = Modifier.weight(1f).clickable { customTemplateIsAnnual = false }
+                                ) {
+                                    Text(
+                                        text = "Mensual",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (!customTemplateIsAnnual) NavySurface else TextSecondaryDark,
+                                        modifier = Modifier.padding(vertical = 10.dp),
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                    )
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (customTemplateIsAnnual) EmeraldPrimary else SlateBackground,
+                                    modifier = Modifier.weight(1f).clickable { customTemplateIsAnnual = true }
+                                ) {
+                                    Text(
+                                        text = "Anual",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (customTemplateIsAnnual) NavySurface else TextSecondaryDark,
+                                        modifier = Modifier.padding(vertical = 10.dp),
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                    )
+                                }
+                            }
+                        }
+
                         OutlinedTextField(
                             value = customTemplateDesc,
                             onValueChange = { customTemplateDesc = it },
@@ -1090,7 +1160,9 @@ fun AddCommitmentDialog(
                                             paymentMode = customTemplatePaymentMode.name,
                                             frequency = customTemplateFreq.name,
                                             installmentsCount = 3L,
-                                            interestRate = customTemplateInterestText.toDoubleOrNull() ?: 0.0,
+                                            interestRate = if (customTemplateApplyInterest) (customTemplateInterestText.toDoubleOrNull() ?: 0.0) else 0.0,
+                                            isAnnualInterest = customTemplateIsAnnual,
+                                            customDays = customTemplateDaysText.toIntOrNull()?.coerceAtLeast(1) ?: 30,
                                             creatorName = "Personalizado",
                                             upvotes = 1L
                                         )
@@ -1100,7 +1172,10 @@ fun AddCommitmentDialog(
                                         title = newTmpl.title
                                         paymentMode = customTemplatePaymentMode
                                         frequency = customTemplateFreq
-                                        interestRateText = (newTmpl.interestRate).toString()
+                                        applyInterest = newTmpl.interestRate > 0.0
+                                        isAnnualInterest = newTmpl.isAnnualInterest
+                                        interestRateText = newTmpl.interestRate.toString()
+                                        customDaysText = newTmpl.customDays.toString()
                                         selectedCategory = newTmpl.category
                                         notes = newTmpl.description
                                         showTemplatePicker = false
@@ -1184,7 +1259,10 @@ fun AddCommitmentDialog(
                                         title = tmpl.title
                                         paymentMode = PaymentMode.entries.find { it.name == tmpl.paymentMode } ?: PaymentMode.INSTALLMENTS
                                         frequency = Frequency.entries.find { it.name == tmpl.frequency } ?: Frequency.BIWEEKLY
+                                        applyInterest = tmpl.interestRate > 0.0
+                                        isAnnualInterest = tmpl.isAnnualInterest
                                         interestRateText = tmpl.interestRate.toString()
+                                        customDaysText = tmpl.customDays.toString()
                                         selectedCategory = tmpl.category
                                         notes = tmpl.description
                                         showTemplatePicker = false
@@ -1212,13 +1290,16 @@ fun AddCommitmentDialog(
         }
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(horizontal = 6.dp, vertical = 10.dp)
                 .testTag("add_commitment_dialog"),
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = SlateCard)
         ) {
             Column(
@@ -1343,12 +1424,13 @@ fun AddCommitmentDialog(
                         modifier = Modifier.weight(1f)
                     ) {
                         OutlinedTextField(
-                            value = selectedCurrency.code,
+                            value = selectedCurrency.symbolWithCode,
                             onValueChange = {},
                             readOnly = true,
                             label = { Text("Moneda") },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = currExpanded) },
-                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                            modifier = Modifier.menuAnchor().fillMaxWidth(),
+                            singleLine = true
                         )
                         ExposedDropdownMenu(
                             expanded = currExpanded,
@@ -1356,7 +1438,7 @@ fun AddCommitmentDialog(
                         ) {
                             AppCurrency.entries.forEach { c ->
                                 DropdownMenuItem(
-                                    text = { Text("${c.flagEmoji} ${c.symbol}") },
+                                    text = { Text("${c.flagEmoji} ${c.symbolWithCode} - ${c.displayName}") },
                                     onClick = {
                                         selectedCurrency = c
                                         currExpanded = false
@@ -1437,17 +1519,111 @@ fun AddCommitmentDialog(
                             }
                         }
 
-                        // Intereses % input
-                        OutlinedTextField(
-                            value = interestRateText,
-                            onValueChange = { interestRateText = it },
-                            label = { Text("Tasa de Interés (%) - Dejar en 0 si es sin interés") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
+                        // If Frequency is CUSTOM, ask explicitly for the days
+                        if (frequency == Frequency.CUSTOM) {
+                            OutlinedTextField(
+                                value = customDaysText,
+                                onValueChange = { customDaysText = it },
+                                label = { Text("Frecuencia personalizada: ¿Cada cuántos días se paga cada cuota?") },
+                                placeholder = { Text("Ej. 45") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.fillMaxWidth().testTag("commitment_custom_days_input"),
+                                singleLine = true
+                            )
+                        }
+
+                        // Intereses: Checkbox to toggle interest on/off
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = SlateCardLight,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { applyInterest = !applyInterest }
+                                ) {
+                                    Checkbox(
+                                        checked = applyInterest,
+                                        onCheckedChange = { applyInterest = it },
+                                        modifier = Modifier.testTag("apply_interest_checkbox")
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "¿Aplica tasa de interés a esta deuda?",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextPrimaryDark
+                                        )
+                                        Text(
+                                            text = if (applyInterest) "Interés configurable (mensual o anual)" else "0% de interés (sin recargo adicional)",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = if (applyInterest) EmeraldLight else TextSecondaryDark,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+
+                                if (applyInterest) {
+                                    Spacer(Modifier.height(10.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        OutlinedTextField(
+                                            value = interestRateText,
+                                            onValueChange = { interestRateText = it },
+                                            label = { Text("Tasa de Interés (%)") },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                            modifier = Modifier.weight(1.2f).testTag("commitment_interest_input"),
+                                            singleLine = true
+                                        )
+
+                                        // Period toggle: Mensual vs Anual
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = if (!isAnnualInterest) EmeraldPrimary else SlateBackground,
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable { isAnnualInterest = false }
+                                        ) {
+                                            Text(
+                                                text = "Mensual",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (!isAnnualInterest) NavySurface else TextSecondaryDark,
+                                                modifier = Modifier.padding(vertical = 12.dp),
+                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                            )
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = if (isAnnualInterest) EmeraldPrimary else SlateBackground,
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable { isAnnualInterest = true }
+                                        ) {
+                                            Text(
+                                                text = "Anual",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isAnnualInterest) NavySurface else TextSecondaryDark,
+                                                modifier = Modifier.padding(vertical = 12.dp),
+                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
                         if (calculatedInstallmentAmount > 0) {
+                            val freqDesc = if (frequency == Frequency.CUSTOM) "cada $customDays días" else "cada ${frequency.displayName.lowercase()}"
                             Surface(
                                 color = EmeraldDark.copy(alpha = 0.25f),
                                 shape = RoundedCornerShape(10.dp),
@@ -1455,14 +1631,14 @@ fun AddCommitmentDialog(
                             ) {
                                 Column(modifier = Modifier.padding(10.dp)) {
                                     Text(
-                                        text = "Monto por cuota: ${selectedCurrency.symbol} ${String.format(java.util.Locale.US, "%.2f", calculatedInstallmentAmount)} cada ${frequency.displayName.lowercase()}",
+                                        text = "Monto por cuota: ${selectedCurrency.symbol} ${String.format(java.util.Locale.US, "%.2f", calculatedInstallmentAmount)} $freqDesc",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = EmeraldLight,
                                         fontWeight = FontWeight.Bold
                                     )
-                                    if (interestRate > 0) {
+                                    if (applyInterest && rawInterestRate > 0) {
                                         Text(
-                                            text = "Total a pagar (${totalInstallments} cuotas + ${interestRate}% interés): ${selectedCurrency.symbol} ${String.format(java.util.Locale.US, "%.2f", totalWithInterest)}",
+                                            text = "Total a pagar (${totalInstallments} cuotas + ${rawInterestRate}% ${if (isAnnualInterest) "anual" else "mensual"}): ${selectedCurrency.symbol} ${String.format(java.util.Locale.US, "%.2f", totalWithInterest)}",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = AccentAmber,
                                             fontSize = 11.sp
@@ -1525,7 +1701,7 @@ fun AddCommitmentDialog(
                     Button(
                         onClick = {
                             if (title.isNotBlank() && totalAmount > 0) {
-                                val effectiveTotal = if (interestRate > 0) totalWithInterest else totalAmount
+                                val effectiveTotal = if (applyInterest && rawInterestRate > 0) totalWithInterest else totalAmount
                                 val remaining = if (commitmentToEdit != null) {
                                     val paidTotal = commitmentToEdit.getProjectedInstallments().filter { it.isPaid }.sumOf { it.amount }
                                     (effectiveTotal - paidTotal).coerceAtLeast(0.0)
@@ -1545,7 +1721,9 @@ fun AddCommitmentDialog(
                                         totalInstallments = if (paymentMode == PaymentMode.INSTALLMENTS && !isFixedExpense) totalInstallments else 1L,
                                         paidInstallments = commitmentToEdit?.paidInstallments ?: 0L,
                                         installmentAmount = if (paymentMode == PaymentMode.INSTALLMENTS && !isFixedExpense) calculatedInstallmentAmount else effectiveTotal,
-                                        interestRate = interestRate,
+                                        interestRate = if (applyInterest) rawInterestRate else 0.0,
+                                        isAnnualInterest = isAnnualInterest,
+                                        customDays = customDays,
                                         frequency = frequency.name,
                                         dueDate = commitmentToEdit?.dueDate ?: Timestamp.now(),
                                         accountId = defaultAccountId.ifBlank { null },
@@ -1593,13 +1771,16 @@ fun PayCommitmentDialog(
     val amount = amountText.toDoubleOrNull() ?: 0.0
     val selectedAccount = accounts.find { it.id == selectedAccountId }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(horizontal = 6.dp, vertical = 10.dp)
                 .testTag("pay_dialog"),
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = SlateCard)
         ) {
             Column(
@@ -1749,13 +1930,16 @@ fun ShareTemplateDialog(
     var description by remember { mutableStateOf("Plan de ${commitment.totalInstallments} cuotas ${commitment.frequency.lowercase()}") }
     var creatorName by remember { mutableStateOf("Usuario") }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(horizontal = 6.dp, vertical = 10.dp)
                 .testTag("share_template_dialog"),
-            shape = RoundedCornerShape(22.dp),
+            shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = SlateCard)
         ) {
             Column(

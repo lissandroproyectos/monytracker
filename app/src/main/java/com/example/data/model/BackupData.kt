@@ -79,6 +79,9 @@ object BackupManager {
             obj.put("totalInstallments", com.totalInstallments)
             obj.put("paidInstallments", com.paidInstallments)
             obj.put("installmentAmount", com.installmentAmount)
+            obj.put("interestRate", com.interestRate)
+            obj.put("isAnnualInterest", com.isAnnualInterest)
+            obj.put("customDays", com.customDays)
             obj.put("notes", com.notes ?: "")
             comArr.put(obj)
         }
@@ -177,6 +180,9 @@ object BackupManager {
                         totalInstallments = o.optLong("totalInstallments", 1L),
                         paidInstallments = o.optLong("paidInstallments", 0L),
                         installmentAmount = o.optDouble("installmentAmount", 0.0),
+                        interestRate = o.optDouble("interestRate", 0.0),
+                        isAnnualInterest = o.optBoolean("isAnnualInterest", false),
+                        customDays = o.optInt("customDays", 30),
                         notes = o.optString("notes").ifBlank { null },
                         createdAt = Timestamp.now()
                     )

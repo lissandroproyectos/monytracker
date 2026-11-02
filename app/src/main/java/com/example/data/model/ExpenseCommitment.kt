@@ -22,10 +22,10 @@ enum class CommitmentStatus(val displayName: String) {
 }
 
 enum class Frequency(val displayName: String, val daysInterval: Int) {
-    WEEKLY("Semanal", 7),
-    BIWEEKLY("Quincenal", 15),
-    MONTHLY("Mensual", 30),
-    CUSTOM("Personalizado", 30)
+    WEEKLY("Semanal (cada 7 días)", 7),
+    BIWEEKLY("Quincenal (cada 15 días)", 15),
+    MONTHLY("Mensual (cada mes)", 30),
+    CUSTOM("Personalizada (cada X días)", 30)
 }
 
 data class ProjectedInstallment(
@@ -71,6 +71,8 @@ data class ExpenseCommitment(
     val paidInstallments: Long = 0L,
     val installmentAmount: Double = 0.0,
     val interestRate: Double = 0.0,
+    val isAnnualInterest: Boolean = false,
+    val customDays: Int = 30,
     val frequency: String = Frequency.MONTHLY.name,
     val startDate: Timestamp = Timestamp.now(),
     val endDate: Timestamp? = null,
@@ -106,7 +108,7 @@ data class ExpenseCommitment(
                 Frequency.WEEKLY -> dueCal.add(Calendar.WEEK_OF_YEAR, i)
                 Frequency.BIWEEKLY -> dueCal.add(Calendar.DAY_OF_YEAR, i * 15)
                 Frequency.MONTHLY -> dueCal.add(Calendar.MONTH, i)
-                Frequency.CUSTOM -> dueCal.add(Calendar.MONTH, i)
+                Frequency.CUSTOM -> dueCal.add(Calendar.DAY_OF_YEAR, i * (if (customDays > 0) customDays else 30))
             }
             val isAlreadyPaid = i <= paidInstallments
             list.add(
@@ -136,6 +138,8 @@ data class ExpenseCommitment(
             "paidInstallments" to paidInstallments,
             "installmentAmount" to installmentAmount,
             "interestRate" to interestRate,
+            "isAnnualInterest" to isAnnualInterest,
+            "customDays" to customDays,
             "frequency" to frequency,
             "startDate" to startDate,
             "endDate" to endDate,
