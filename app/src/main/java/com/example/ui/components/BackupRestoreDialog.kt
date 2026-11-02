@@ -120,27 +120,34 @@ fun BackupRestoreDialog(
                     Tab(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
-                        text = { Text("Exportar / Sync", fontWeight = FontWeight.SemiBold, fontSize = 11.sp) }
+                        text = { Text("Exportar (Offline)", fontWeight = FontWeight.SemiBold, fontSize = 11.sp) }
                     )
                     Tab(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        text = { Text("Importar / Sync", fontWeight = FontWeight.SemiBold, fontSize = 11.sp) }
+                        text = { Text("Importar (Offline)", fontWeight = FontWeight.SemiBold, fontSize = 11.sp) }
                     )
                     Tab(
                         selected = selectedTab == 2,
                         onClick = { selectedTab = 2 },
-                        text = { Text("Nube", fontWeight = FontWeight.SemiBold, fontSize = 11.sp) }
+                        text = { Text("Nube (Google)", fontWeight = FontWeight.SemiBold, fontSize = 11.sp) }
                     )
                 }
 
                 when (selectedTab) {
-                    0 -> { // EXPORT & MANUAL SYNC
-                        Text(
-                            text = "Exporta tus cuentas, deudas, gastos fijos y movimientos. Usa este código para sincronizar manualmente otro dispositivo sin necesidad de iniciar sesión.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondaryDark
-                        )
+                    0 -> { // EXPORT & MANUAL SYNC (OFFLINE - NO GOOGLE REQUIRED)
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = EmeraldDark.copy(alpha = 0.25f)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "✅ No requiere cuenta de Google ni internet. Exporta tus datos para guardarlos en un archivo o transferirlos directamente a otro teléfono.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = EmeraldLight,
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
 
                         Box(
                             modifier = Modifier
@@ -198,12 +205,19 @@ fun BackupRestoreDialog(
                         }
                     }
 
-                    1 -> { // IMPORT & MANUAL SYNC
-                        Text(
-                            text = "📲 Sincronización Manual: Pega el código JSON exportado desde tu otro teléfono o tablet para restaurar y mantener sincronizados tus datos:",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondaryDark
-                        )
+                    1 -> { // IMPORT & MANUAL SYNC (OFFLINE - NO GOOGLE REQUIRED)
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = EmeraldDark.copy(alpha = 0.25f)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "✅ No requiere cuenta de Google ni internet. Pega el código exportado desde otro equipo y tus cuentas, cuotas y movimientos se restaurarán de inmediato.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = EmeraldLight,
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
 
                         OutlinedTextField(
                             value = importJsonText,
@@ -233,32 +247,57 @@ fun BackupRestoreDialog(
                         }
                     }
 
-                    2 -> { // CLOUD SNAPSHOT
-                        Text(
-                            text = "Guarda un punto de restauración seguro directamente en tu cuenta de Firebase:",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondaryDark
-                        )
+                    2 -> { // CLOUD SNAPSHOT (REQUIRES GOOGLE ACCOUNT)
+                        if (viewModel.currentUserId == "local_guest") {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = SlateCardLight),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "ℹ️ Estás en Modo Local (Sin Cuenta)",
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimaryDark,
+                                        style = MaterialTheme.typography.titleSmall
+                                    )
+                                    Text(
+                                        text = "Para exportar o importar datos entre dispositivos NO necesitas cuenta de Google (usa las pestañas Exportar e Importar de arriba). Para sincronizar automáticamente y guardar copias en la base de datos de Firebase, inicia sesión con Google.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextSecondaryDark
+                                    )
+                                }
+                            }
+                        } else {
+                            Text(
+                                text = "☁️ Sesión activa con Google. Guarda un punto de restauración seguro directamente en Firebase Firestore:",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondaryDark
+                            )
 
-                        OutlinedTextField(
-                            value = backupNote,
-                            onValueChange = { backupNote = it },
-                            label = { Text("Nota del respaldo (ej. Cierre Quincena)") },
-                            modifier = Modifier.fillMaxWidth().testTag("backup_note_input"),
-                            singleLine = true
-                        )
+                            OutlinedTextField(
+                                value = backupNote,
+                                onValueChange = { backupNote = it },
+                                label = { Text("Nota del respaldo (ej. Cierre Quincena)") },
+                                modifier = Modifier.fillMaxWidth().testTag("backup_note_input"),
+                                singleLine = true
+                            )
 
-                        Button(
-                            onClick = {
-                                viewModel.saveBackupSnapshot(backupNote.trim())
-                                onDismiss()
-                            },
-                            modifier = Modifier.fillMaxWidth().testTag("save_cloud_backup_btn"),
-                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
-                        ) {
-                            Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Guardar Punto de Respaldo")
+                            Button(
+                                onClick = {
+                                    viewModel.saveBackupSnapshot(backupNote.trim())
+                                    onDismiss()
+                                },
+                                modifier = Modifier.fillMaxWidth().testTag("save_cloud_backup_btn"),
+                                colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                            ) {
+                                Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Guardar Punto en la Nube")
+                            }
                         }
                     }
                 }

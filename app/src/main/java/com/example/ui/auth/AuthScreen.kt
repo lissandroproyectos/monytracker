@@ -1,6 +1,8 @@
 package com.example.ui.auth
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -63,14 +65,13 @@ import com.example.ui.theme.SlateBackground
 import com.example.ui.theme.SlateCard
 import com.example.ui.theme.TextPrimaryDark
 import com.example.ui.theme.TextSecondaryDark
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.launch
-
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -85,6 +86,15 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 
+private fun Context.findActivity(): Activity? {
+    var ctx = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
+
 private const val TAG = "AuthScreen"
 
 @Composable
@@ -96,26 +106,17 @@ fun AuthScreen(
     val scope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var showEmailAuth by remember { mutableStateOf(false) }
-    var emailText by remember { mutableStateOf("") }
-    var passwordText by remember { mutableStateOf("") }
-    var isRegistering by remember { mutableStateOf(false) }
 
     fun launchGoogleSignIn() {
-        val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
-        val webClientId = if (resId != 0) {
-            try {
-                context.getString(resId)
-            } catch (e: Exception) {
-                ""
-            }
-        } else {
-            // Fallback web client ID from project configuration
-            "166010243644-q8chp7cgoo1ltng0fi7u3h8gi9jm8hhr.apps.googleusercontent.com"
+        val webClientId = try {
+            context.getString(R.string.default_web_client_id)
+        } catch (e: Exception) {
+            val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+            if (resId != 0) context.getString(resId) else ""
         }
 
         if (webClientId.isBlank()) {
-            errorMessage = "Configuración de Google Sign-In no encontrada. Puedes usar Correo o Modo Local."
+            errorMessage = "No se encontró el ID de cliente de Google en los recursos del sistema. Puedes usar Modo Local."
             return
         }
 
@@ -124,18 +125,30 @@ fun AuthScreen(
 
         scope.launch {
             try {
-                val credentialManager = CredentialManager.create(context)
-                val googleIdOption = GetSignInWithGoogleOption.Builder(webClientId)
+                val activityContext = context.findActivity() ?: context
+                val credentialManager = CredentialManager.create(activityContext)
+
+                val googleIdOption = GetGoogleIdOption.Builder()
+                    .setFilterByAuthorizedAccounts(false)
+                    .setServerClientId(webClientId)
+                    .setAutoSelectEnabled(false)
+                    .build()
+
+                val signInWithGoogleOption = GetSignInWithGoogleOption.Builder(webClientId)
                     .build()
 
                 val request = GetCredentialRequest.Builder()
                     .addCredentialOption(googleIdOption)
+                    .addCredentialOption(signInWithGoogleOption)
                     .build()
 
-                val result = credentialManager.getCredential(context, request)
+                val result = credentialManager.getCredential(activityContext, request)
                 val credential = result.credential
 
-                if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                if (credential is CustomCredential &&
+                    (credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL ||
+                     credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_SIWG_CREDENTIAL)
+                ) {
                     val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
                     val idToken = googleIdTokenCredential.idToken
                     val authCredential = GoogleAuthProvider.getCredential(idToken, null)
@@ -146,60 +159,29 @@ fun AuthScreen(
                         }
                         .addOnFailureListener { ex ->
                             isLoading = false
-                            errorMessage = "Firebase no pudo validar la sesión: ${ex.localizedMessage}. Puedes usar Correo o Modo Local."
+                            errorMessage = "Firebase no validó la credencial: ${ex.localizedMessage ?: "Error de autenticación"}. Verifica conexión o usa Modo Local."
                             Log.e(TAG, "Firebase auth error", ex)
                         }
                 } else {
                     isLoading = false
-                    errorMessage = "Credencial de Google no reconocida. Usa Correo o Modo Local."
+                    errorMessage = "Tipo de credencial no reconocido: ${(credential as? CustomCredential)?.type ?: credential.javaClass.simpleName}. Usa Modo Local."
                 }
             } catch (e: GetCredentialCancellationException) {
-                Log.w(TAG, "Google Sign-in cancelled by user")
+                Log.w(TAG, "Google Sign-in cancelado por el usuario")
                 isLoading = false
             } catch (e: Exception) {
                 Log.e(TAG, "Google Sign-in failed", e)
                 isLoading = false
-                errorMessage = "Google Sign-In: ${e.localizedMessage ?: "Error de conexión/Play Services"}. Puedes iniciar con Correo o usar Modo Local sin límites."
+                val msg = when {
+                    e.message?.contains("16") == true || e.message?.contains("Developer") == true ->
+                        "Error de configuración (Código 16 / Developer Error): Asegúrate de que el APK esté firmado y los servicios de Google Play actualizados."
+                    e.message?.contains("No credential") == true ->
+                        "No se seleccionó ninguna cuenta de Google en el dispositivo. Intenta nuevamente."
+                    else ->
+                        "Google Sign-In: ${e.localizedMessage ?: "Error al conectar con Google Play Services"}. Puedes usar Modo Local."
+                }
+                errorMessage = msg
             }
-        }
-    }
-
-    fun handleEmailAuth() {
-        val email = emailText.trim()
-        val pass = passwordText.trim()
-        if (email.isBlank() || pass.isBlank()) {
-            errorMessage = "Por favor ingresa correo y contraseña"
-            return
-        }
-        if (pass.length < 6) {
-            errorMessage = "La contraseña debe tener al menos 6 caracteres"
-            return
-        }
-
-        isLoading = true
-        errorMessage = null
-        val auth = FirebaseAuth.getInstance()
-
-        if (isRegistering) {
-            auth.createUserWithEmailAndPassword(email, pass)
-                .addOnSuccessListener {
-                    isLoading = false
-                    onSignInSuccess()
-                }
-                .addOnFailureListener { ex ->
-                    isLoading = false
-                    errorMessage = "Error al registrarse: ${ex.localizedMessage}"
-                }
-        } else {
-            auth.signInWithEmailAndPassword(email, pass)
-                .addOnSuccessListener {
-                    isLoading = false
-                    onSignInSuccess()
-                }
-                .addOnFailureListener { ex ->
-                    isLoading = false
-                    errorMessage = "Error al iniciar sesión: ${ex.localizedMessage}"
-                }
         }
     }
 
@@ -309,78 +291,6 @@ fun AuthScreen(
                     }
                 }
 
-                if (showEmailAuth) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                        colors = CardDefaults.cardColors(containerColor = SlateCard),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Text(
-                                text = if (isRegistering) "Crear Cuenta con Correo" else "Iniciar Sesión con Correo",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimaryDark
-                            )
-
-                            OutlinedTextField(
-                                value = emailText,
-                                onValueChange = { emailText = it },
-                                label = { Text("Correo Electrónico") },
-                                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = EmeraldLight) },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            OutlinedTextField(
-                                value = passwordText,
-                                onValueChange = { passwordText = it },
-                                label = { Text("Contraseña (mínimo 6 caracteres)") },
-                                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = EmeraldLight) },
-                                visualTransformation = PasswordVisualTransformation(),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            Button(
-                                onClick = { handleEmailAuth() },
-                                enabled = !isLoading,
-                                modifier = Modifier.fillMaxWidth().height(48.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = EmeraldLight, contentColor = NavySurface),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                if (isLoading) {
-                                    CircularProgressIndicator(color = NavySurface, modifier = Modifier.size(20.dp))
-                                } else {
-                                    Text(if (isRegistering) "Registrarme" else "Entrar con Correo", fontWeight = FontWeight.Bold)
-                                }
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                TextButton(onClick = { isRegistering = !isRegistering }) {
-                                    Text(
-                                        text = if (isRegistering) "¿Ya tienes cuenta? Inicia sesión" else "¿No tienes cuenta? Regístrate",
-                                        color = EmeraldLight,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                                TextButton(onClick = { showEmailAuth = false }) {
-                                    Text("Cancelar", color = TextSecondaryDark, fontSize = 12.sp)
-                                }
-                            }
-                        }
-                    }
-                }
-
                 Button(
                     onClick = { launchGoogleSignIn() },
                     enabled = !isLoading,
@@ -417,31 +327,7 @@ fun AuthScreen(
                     }
                 }
 
-                if (!showEmailAuth) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedButton(
-                        onClick = { showEmailAuth = true },
-                        enabled = !isLoading,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("email_auth_button"),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = TextPrimaryDark
-                        )
-                    ) {
-                        Icon(Icons.Default.Email, contentDescription = null, modifier = Modifier.size(20.dp), tint = EmeraldLight)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "Acceder con Correo y Contraseña",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 OutlinedButton(
                     onClick = onContinueAsGuest,

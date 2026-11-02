@@ -602,4 +602,32 @@ class FinanceViewModel(
             }
         }
     }
+
+    fun applySavingsSweep(amount: Double, currency: AppCurrency, note: String) {
+        viewModelScope.launch {
+            try {
+                val savingsAcc = accounts.value.firstOrNull { it.isSavings }
+                    ?: accounts.value.firstOrNull { it.name.contains("Ahorro", ignoreCase = true) }
+                    ?: accounts.value.firstOrNull()
+                
+                if (savingsAcc != null) {
+                    addTransaction(
+                        com.example.data.model.Transaction(
+                            userId = currentUserId,
+                            accountId = savingsAcc.id,
+                            type = com.example.data.model.TransactionType.TRANSFER.name,
+                            amount = amount,
+                            currency = currency.name,
+                            description = "💰 Cuota de Ahorro: $note",
+                            category = "Ahorro",
+                            date = com.google.firebase.Timestamp.now()
+                        )
+                    )
+                    _userMessage.value = UiMessage.Success("Guardado $amount ${currency.symbol} en ${savingsAcc.name}")
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "Error aplicando barrido de ahorro: ${e.localizedMessage}"
+            }
+        }
+    }
 }
