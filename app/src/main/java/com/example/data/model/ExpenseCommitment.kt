@@ -49,13 +49,28 @@ data class ProjectedInstallment(
     )
 
     companion object {
+        private fun parseTimestamp(value: Any?): Timestamp {
+            return when (value) {
+                is Timestamp -> value
+                is Date -> Timestamp(value)
+                is Long -> Timestamp(Date(value))
+                is Double -> Timestamp(Date(value.toLong()))
+                is Map<*, *> -> {
+                    val sec = (value["seconds"] as? Number)?.toLong() ?: (value["_seconds"] as? Number)?.toLong() ?: 0L
+                    val nano = (value["nanoseconds"] as? Number)?.toInt() ?: (value["_nanoseconds"] as? Number)?.toInt() ?: 0
+                    Timestamp(sec, nano)
+                }
+                else -> Timestamp.now()
+            }
+        }
+
         fun fromMap(map: Map<String, Any?>): ProjectedInstallment {
             return ProjectedInstallment(
                 number = (map["number"] as? Number)?.toLong() ?: 1L,
-                dueDate = map["dueDate"] as? Timestamp ?: Timestamp.now(),
+                dueDate = parseTimestamp(map["dueDate"]),
                 amount = (map["amount"] as? Number)?.toDouble() ?: 0.0,
                 isPaid = map["isPaid"] as? Boolean ?: false,
-                paidDate = map["paidDate"] as? Timestamp
+                paidDate = map["paidDate"]?.let { parseTimestamp(it) }
             )
         }
     }

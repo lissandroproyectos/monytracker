@@ -145,9 +145,9 @@ class FinanceRepository(
             persistLocalGuestData()
             return
         }
-        require(account.id.isNotBlank())
+        if (account.id.isBlank()) return
         val docRef = db.collection("users").document(userId).collection("accounts").document(account.id)
-        docRef.update(account.toMap()).await()
+        docRef.set(account.toMap(), com.google.firebase.firestore.SetOptions.merge()).await()
     }
 
     suspend fun deleteAccount(userId: String, accountId: String) {
@@ -320,8 +320,9 @@ class FinanceRepository(
             persistLocalGuestData()
             return
         }
+        if (commitment.id.isBlank()) return
         val docRef = db.collection("users").document(userId).collection("commitments").document(commitment.id)
-        docRef.update(commitment.toMap()).await()
+        docRef.set(commitment.toMap(), com.google.firebase.firestore.SetOptions.merge()).await()
     }
 
     suspend fun deleteCommitment(userId: String, commitmentId: String) {

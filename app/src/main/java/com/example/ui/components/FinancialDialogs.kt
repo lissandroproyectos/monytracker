@@ -479,7 +479,7 @@ fun AddAccountDialog(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     COLOR_OPTIONS.forEach { hex ->
-                        val color = Color(android.graphics.Color.parseColor(hex))
+                        val color = try { Color(android.graphics.Color.parseColor(hex)) } catch (e: Exception) { EmeraldLight }
                         Box(
                             modifier = Modifier
                                 .size(34.dp)
@@ -955,7 +955,7 @@ fun AddCommitmentDialog(
         mutableStateOf(commitmentToEdit?.isFixedExpense ?: initialIsFixed)
     }
     var commitmentStartDate by remember {
-        mutableStateOf(commitmentToEdit?.startDate?.toDate() ?: Date())
+        mutableStateOf(try { commitmentToEdit?.startDate?.toDate() } catch (e: Exception) { null } ?: Date())
     }
     var totalAmountText by remember {
         mutableStateOf(if (commitmentToEdit != null) commitmentToEdit.totalAmount.toString() else "")
@@ -964,19 +964,19 @@ fun AddCommitmentDialog(
         mutableStateOf((commitmentToEdit?.downPayment ?: 0.0) > 0.0)
     }
     var downPaymentText by remember {
-        mutableStateOf(if ((commitmentToEdit?.downPayment ?: 0.0) > 0.0) commitmentToEdit!!.downPayment.toString() else "")
+        mutableStateOf(if ((commitmentToEdit?.downPayment ?: 0.0) > 0.0) commitmentToEdit?.downPayment?.toString() ?: "" else "")
     }
     var alreadyPaidCountText by remember {
         mutableStateOf((commitmentToEdit?.paidInstallments ?: 0L).toString())
     }
     var fixedExpenseDueDate by remember {
-        mutableStateOf(commitmentToEdit?.dueDate?.toDate() ?: Date())
+        mutableStateOf(try { commitmentToEdit?.dueDate?.toDate() } catch (e: Exception) { null } ?: Date())
     }
     var hasEndDate by remember {
         mutableStateOf(commitmentToEdit?.endDate != null)
     }
     var fixedExpenseEndDate by remember {
-        mutableStateOf(commitmentToEdit?.endDate?.toDate() ?: Calendar.getInstance().apply { add(Calendar.YEAR, 1) }.time)
+        mutableStateOf(try { commitmentToEdit?.endDate?.toDate() } catch (e: Exception) { null } ?: Calendar.getInstance().apply { add(Calendar.YEAR, 1) }.time)
     }
     var fixedCyclesCountText by remember {
         mutableStateOf((if (commitmentToEdit != null && commitmentToEdit.installments.isNotEmpty()) commitmentToEdit.installments.size.toLong() else 6L).toString())
