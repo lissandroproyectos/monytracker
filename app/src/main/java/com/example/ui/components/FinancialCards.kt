@@ -93,7 +93,7 @@ fun formatCurrency(amount: Double, currency: String = "$"): String {
 
 fun formatDate(date: Date?): String {
     if (date == null) return ""
-    val sdf = SimpleDateFormat("dd MMM yyyy", Locale("es", "ES"))
+    val sdf = SimpleDateFormat("dd MMM yyyy", Locale.forLanguageTag("es-ES"))
     return sdf.format(date)
 }
 

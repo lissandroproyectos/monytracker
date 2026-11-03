@@ -7,6 +7,7 @@ import com.example.data.currency.AppCurrency
 import com.example.data.currency.ExchangeRates
 import com.example.data.model.Account
 import com.example.data.model.BackupManager
+import com.example.data.model.CloudBackupItem
 import com.example.data.model.CommitmentStatus
 import com.example.data.model.ExpenseCommitment
 import com.example.data.model.InstallmentPayment
@@ -545,5 +546,53 @@ class FinanceRepository(
         }
 
         return parsed
+    }
+
+    fun observeCloudBackups(userId: String): Flow<List<CloudBackupItem>> {
+        if (isGuest(userId)) {
+            return kotlinx.coroutines.flow.flowOf(emptyList())
+        }
+        return db.collection("users").document(userId).collection("backups")
+            .snapshots()
+            .map { querySnapshot ->
+                querySnapshot.documents.mapNotNull { doc ->
+                    try {
+                        val id = doc.id
+                        val note = doc.getString("note") ?: "Respaldo"
+                        val accountsCount = doc.getLong("accountsCount")?.toInt() ?: 0
+                        val commitmentsCount = doc.getLong("commitmentsCount")?.toInt() ?: 0
+                        val transactionsCount = doc.getLong("transactionsCount")?.toInt() ?: 0
+                        val payload = doc.getString("payload") ?: ""
+                        
+                        val tsObj = doc.get("timestamp")
+                        val tsLong = when (tsObj) {
+                            is Timestamp -> tsObj.toDate().time
+                            is Long -> tsObj
+                            is Number -> tsObj.toLong()
+                            else -> System.currentTimeMillis()
+                        }
+
+                        CloudBackupItem(
+                            id = id,
+                            userId = userId,
+                            note = note,
+                            timestamp = tsLong,
+                            accountsCount = accountsCount,
+                            commitmentsCount = commitmentsCount,
+                            transactionsCount = transactionsCount,
+                            payload = payload
+                        )
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed parsing cloud backup doc ${doc.id}", e)
+                        null
+                    }
+                }.sortedByDescending { it.timestamp }
+            }
+    }
+
+    suspend fun deleteCloudBackup(userId: String, backupId: String) {
+        if (!isGuest(userId)) {
+            db.collection("users").document(userId).collection("backups").document(backupId).delete().await()
+        }
     }
 }

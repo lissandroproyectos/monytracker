@@ -16,6 +16,17 @@ data class BackupMetadata(
     val note: String = ""
 )
 
+data class CloudBackupItem(
+    val id: String = "",
+    val userId: String = "",
+    val note: String = "",
+    val timestamp: Long = System.currentTimeMillis(),
+    val accountsCount: Int = 0,
+    val commitmentsCount: Int = 0,
+    val transactionsCount: Int = 0,
+    val payload: String = ""
+)
+
 object BackupManager {
 
     fun exportToJson(

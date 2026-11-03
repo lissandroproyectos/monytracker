@@ -2,6 +2,7 @@ package com.example.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,11 +11,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Backup
+import com.google.firebase.auth.FirebaseAuth
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CurrencyExchange
 import androidx.compose.material.icons.filled.ExitToApp
@@ -107,6 +111,7 @@ fun MainApp(
     var currentTab by remember { mutableStateOf(ScreenTab.DASHBOARD) }
     var showTransactionsScreen by remember { mutableStateOf(false) }
     var showSignOutConfirm by remember { mutableStateOf(false) }
+    val activeFirebaseUser = remember { FirebaseAuth.getInstance().currentUser }
 
     // Dialog state
     var showCurrencySettingsDialog by remember { mutableStateOf(false) }
@@ -161,12 +166,42 @@ fun MainApp(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             CenterAlignedTopAppBar(
+                navigationIcon = {
+                    if (activeFirebaseUser != null) {
+                        Box(
+                            modifier = Modifier
+                                .padding(start = 8.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(EmeraldDark.copy(alpha = 0.35f))
+                                .clickable { showSignOutConfirm = true }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.AccountCircle,
+                                    contentDescription = "Usuario activo",
+                                    tint = EmeraldLight,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = activeFirebaseUser.email?.substringBefore("@") ?: "Google",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimaryDark,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                },
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
                                 .size(28.dp)
-                                .clip(CircleShape)
+                                .clip(RoundedCornerShape(8.dp))
                                 .background(EmeraldLight.copy(alpha = 0.2f)),
                             contentAlignment = Alignment.Center
                         ) {
@@ -318,10 +353,22 @@ fun MainApp(
     }
 
     if (showSignOutConfirm) {
+        val emailStr = activeFirebaseUser?.email ?: activeFirebaseUser?.displayName ?: ""
         AlertDialog(
             onDismissRequest = { showSignOutConfirm = false },
-            title = { Text("Cerrar Sesión", color = TextPrimaryDark, fontWeight = FontWeight.Bold) },
-            text = { Text("¿Deseas salir de tu cuenta de Finanzas?", color = TextSecondaryDark) },
+            title = { Text("Cerrar Sesión de Google", color = TextPrimaryDark, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (emailStr.isNotBlank()) {
+                        Text("Usuario actual: $emailStr", color = EmeraldLight, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                    Text(
+                        text = "Tus cuentas, movimientos y compromisos están respaldados en la nube de Firebase. ¿Deseas cerrar la sesión?",
+                        color = TextSecondaryDark,
+                        fontSize = 13.sp
+                    )
+                }
+            },
             confirmButton = {
                 TextButton(
                     onClick = {

@@ -325,7 +325,7 @@ fun MonthlyCalendarView(
         }.time
     }
 
-    val monthFormat = remember { SimpleDateFormat("MMMM yyyy", Locale("es", "ES")) }
+    val monthFormat = remember { SimpleDateFormat("MMMM yyyy", Locale.forLanguageTag("es-ES")) }
     val monthTitle = remember(calendarMonth) {
         monthFormat.format(calendarMonth.time).replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
     }
@@ -742,7 +742,7 @@ fun PaymentPlanProjectionView(
     onEditCushion: () -> Unit
 ) {
     val context = LocalContext.current
-    val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy", Locale("es", "ES")) }
+    val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("es-ES")) }
 
     // Start and End dates for the projection simulation
     var startDate by remember {

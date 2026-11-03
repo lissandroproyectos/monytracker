@@ -21,23 +21,38 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.model.CloudBackupItem
+import com.google.firebase.auth.FirebaseAuth
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -248,7 +263,11 @@ fun BackupRestoreDialog(
                     }
 
                     2 -> { // CLOUD SNAPSHOT (REQUIRES GOOGLE ACCOUNT)
-                        if (viewModel.currentUserId == "local_guest") {
+                        val cloudBackups by viewModel.cloudBackups.collectAsStateWithLifecycle()
+                        var selectedSnapshotToRestore by remember { mutableStateOf<CloudBackupItem?>(null) }
+                        val firebaseUser = FirebaseAuth.getInstance().currentUser
+
+                        if (viewModel.currentUserId == "local_guest" || firebaseUser == null) {
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = SlateCardLight),
                                 shape = RoundedCornerShape(12.dp),
@@ -265,23 +284,82 @@ fun BackupRestoreDialog(
                                         style = MaterialTheme.typography.titleSmall
                                     )
                                     Text(
-                                        text = "Para exportar o importar datos entre dispositivos NO necesitas cuenta de Google (usa las pestañas Exportar e Importar de arriba). Para sincronizar automáticamente y guardar copias en la base de datos de Firebase, inicia sesión con Google.",
+                                        text = "Para exportar o importar datos entre dispositivos de forma manual NO necesitas cuenta de Google (usa las pestañas Exportar e Importar de arriba). Para guardar y restaurar puntos automáticos en la nube de Firebase, inicia sesión con Google.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = TextSecondaryDark
                                     )
                                 }
                             }
                         } else {
+                            // User Info Header Card
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = EmeraldDark.copy(alpha = 0.3f)),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AccountCircle,
+                                        contentDescription = null,
+                                        tint = EmeraldLight,
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = firebaseUser.displayName.takeIf { !it.isNullOrBlank() } ?: "Cuenta de Google",
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextPrimaryDark,
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        Text(
+                                            text = firebaseUser.email ?: "",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = EmeraldLight
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(20.dp))
+                                            .background(EmeraldLight.copy(alpha = 0.2f))
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = EmeraldLight,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "Conectado",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = EmeraldLight,
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Section 1: Save Backup
                             Text(
-                                text = "☁️ Sesión activa con Google. Guarda un punto de restauración seguro directamente en Firebase Firestore:",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondaryDark
+                                text = "☁️ Guardar nuevo punto en la Nube",
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimaryDark,
+                                style = MaterialTheme.typography.titleSmall
                             )
 
                             OutlinedTextField(
                                 value = backupNote,
                                 onValueChange = { backupNote = it },
-                                label = { Text("Nota del respaldo (ej. Cierre Quincena)") },
+                                label = { Text("Nota o descripción (ej. Cierre Quincena)") },
                                 modifier = Modifier.fillMaxWidth().testTag("backup_note_input"),
                                 singleLine = true
                             )
@@ -289,7 +367,7 @@ fun BackupRestoreDialog(
                             Button(
                                 onClick = {
                                     viewModel.saveBackupSnapshot(backupNote.trim())
-                                    onDismiss()
+                                    backupNote = ""
                                 },
                                 modifier = Modifier.fillMaxWidth().testTag("save_cloud_backup_btn"),
                                 colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
@@ -297,6 +375,127 @@ fun BackupRestoreDialog(
                                 Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text("Guardar Punto en la Nube")
+                            }
+
+                            HorizontalDivider(
+                                modifier = Modifier.padding(vertical = 4.dp),
+                                color = TextSecondaryDark.copy(alpha = 0.2f)
+                            )
+
+                            // Section 2: Restore Backups List
+                            Text(
+                                text = "🔄 Puntos de Restauración en la Nube",
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimaryDark,
+                                style = MaterialTheme.typography.titleSmall
+                            )
+
+                            if (cloudBackups.isEmpty()) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = SlateCardLight,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = "Aún no has guardado puntos de respaldo en la nube. Presiona 'Guardar Punto en la Nube' para crear tu primer respaldo.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextSecondaryDark,
+                                        modifier = Modifier.padding(14.dp)
+                                    )
+                                }
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    cloudBackups.forEach { item ->
+                                        val dateStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(item.timestamp))
+                                        Card(
+                                            colors = CardDefaults.cardColors(containerColor = SlateCardLight),
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(modifier = Modifier.padding(12.dp)) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        text = item.note.ifBlank { "Respaldo automático" },
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = TextPrimaryDark,
+                                                        style = MaterialTheme.typography.bodyMedium
+                                                    )
+                                                    IconButton(
+                                                        onClick = { viewModel.deleteCloudBackup(item) },
+                                                        modifier = Modifier.size(24.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Delete,
+                                                            contentDescription = "Eliminar",
+                                                            tint = TextSecondaryDark,
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
+                                                }
+
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = "Fecha: $dateStr",
+                                                    fontSize = 11.sp,
+                                                    color = EmeraldLight
+                                                )
+                                                Text(
+                                                    text = "${item.accountsCount} cuentas, ${item.commitmentsCount} deudas/compromisos, ${item.transactionsCount} movimientos",
+                                                    fontSize = 11.sp,
+                                                    color = TextSecondaryDark
+                                                )
+
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Button(
+                                                    onClick = { selectedSnapshotToRestore = item },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldDark)
+                                                ) {
+                                                    Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text("Restaurar este Punto", fontSize = 12.sp)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Confirmation Dialog for Cloud Restore
+                            selectedSnapshotToRestore?.let { itemToRestore ->
+                                val dateStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(itemToRestore.timestamp))
+                                AlertDialog(
+                                    onDismissRequest = { selectedSnapshotToRestore = null },
+                                    title = { Text("Restaurar Punto de la Nube", color = TextPrimaryDark, fontWeight = FontWeight.Bold) },
+                                    text = {
+                                        Text(
+                                            text = "¿Deseas restaurar el respaldo '${itemToRestore.note.ifBlank { "Respaldo" }}' creado el $dateStr?\n\nEsta acción reemplazará las cuentas y deudas actuales con los datos guardados en esa fecha.",
+                                            color = TextSecondaryDark
+                                        )
+                                    },
+                                    confirmButton = {
+                                        Button(
+                                            onClick = {
+                                                viewModel.restoreCloudBackup(itemToRestore)
+                                                selectedSnapshotToRestore = null
+                                                onDismiss()
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                                        ) {
+                                            Text("Confirmar Restauración")
+                                        }
+                                    },
+                                    dismissButton = {
+                                        TextButton(onClick = { selectedSnapshotToRestore = null }) {
+                                            Text("Cancelar", color = TextSecondaryDark)
+                                        }
+                                    },
+                                    containerColor = SlateCard
+                                )
                             }
                         }
                     }

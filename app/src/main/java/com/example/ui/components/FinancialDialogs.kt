@@ -1688,7 +1688,7 @@ fun AddCommitmentDialog(
                     // Fecha de inicio (cuando ocurrió el egreso / emisión de la deuda)
                     val debtStartCal = Calendar.getInstance().apply { time = commitmentStartDate }
                     val debtStartDayOfMonth = debtStartCal.get(Calendar.DAY_OF_MONTH)
-                    val debtStartDateFmt = SimpleDateFormat("dd/MM/yyyy", Locale("es", "ES")).format(commitmentStartDate)
+                    val debtStartDateFmt = SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("es-ES")).format(commitmentStartDate)
 
                     Surface(
                         shape = RoundedCornerShape(12.dp),
@@ -1715,7 +1715,7 @@ fun AddCommitmentDialog(
                                             Frequency.QUARTERLY -> "Día de pago recurrente: cada 3 meses el día $debtStartDayOfMonth"
                                             Frequency.FOUR_MONTHLY -> "Día de pago recurrente: cada 4 meses el día $debtStartDayOfMonth"
                                             Frequency.SEMIANNUAL -> "Día de pago recurrente: cada 6 meses el día $debtStartDayOfMonth"
-                                            Frequency.ANNUAL -> "Día de pago recurrente: anualmente cada $debtStartDayOfMonth de " + SimpleDateFormat("MMMM", Locale("es", "ES")).format(commitmentStartDate)
+                                            Frequency.ANNUAL -> "Día de pago recurrente: anualmente cada $debtStartDayOfMonth de " + SimpleDateFormat("MMMM", Locale.forLanguageTag("es-ES")).format(commitmentStartDate)
                                             Frequency.BIWEEKLY -> "Día de pago recurrente: cada 15 días a partir del $debtStartDateFmt"
                                             Frequency.WEEKLY -> "Día de pago recurrente: semanal a partir del $debtStartDateFmt"
                                             Frequency.CUSTOM -> "Día de pago recurrente: cada $customDays días a partir del $debtStartDateFmt"
@@ -1992,7 +1992,7 @@ fun AddCommitmentDialog(
                             }
 
                             activeSchedule.forEachIndexed { idx, inst ->
-                                val dateFmt = SimpleDateFormat("dd/MM/yyyy", Locale("es", "ES")).format(inst.dueDate.toDate())
+                                val dateFmt = SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("es-ES")).format(inst.dueDate.toDate())
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
                                     color = SlateBackground,
@@ -2195,7 +2195,7 @@ fun AddCommitmentDialog(
 
                             val fixedStartCal = Calendar.getInstance().apply { time = fixedExpenseDueDate }
                             val fixedStartDayOfMonth = fixedStartCal.get(Calendar.DAY_OF_MONTH)
-                            val fixedDueDateFmt = SimpleDateFormat("dd/MM/yyyy", Locale("es", "ES")).format(fixedExpenseDueDate)
+                            val fixedDueDateFmt = SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("es-ES")).format(fixedExpenseDueDate)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -2215,7 +2215,7 @@ fun AddCommitmentDialog(
                                             Frequency.QUARTERLY -> "Día de pago recurrente: cada 3 meses el día $fixedStartDayOfMonth"
                                             Frequency.FOUR_MONTHLY -> "Día de pago recurrente: cada 4 meses el día $fixedStartDayOfMonth"
                                             Frequency.SEMIANNUAL -> "Día de pago recurrente: cada 6 meses el día $fixedStartDayOfMonth"
-                                            Frequency.ANNUAL -> "Día de pago recurrente: cada año el día $fixedStartDayOfMonth de " + SimpleDateFormat("MMMM", Locale("es", "ES")).format(fixedExpenseDueDate)
+                                            Frequency.ANNUAL -> "Día de pago recurrente: cada año el día $fixedStartDayOfMonth de " + SimpleDateFormat("MMMM", Locale.forLanguageTag("es-ES")).format(fixedExpenseDueDate)
                                             Frequency.BIWEEKLY -> "Día de pago recurrente: cada 15 días a partir del $fixedDueDateFmt"
                                             Frequency.WEEKLY -> "Día de pago recurrente: semanal a partir del $fixedDueDateFmt"
                                             Frequency.CUSTOM -> "Día de pago recurrente: cada $customDays días a partir del $fixedDueDateFmt"
@@ -2283,7 +2283,7 @@ fun AddCommitmentDialog(
 
                                     if (hasEndDate) {
                                         Spacer(Modifier.height(8.dp))
-                                        val fixedEndDateFmt = SimpleDateFormat("dd/MM/yyyy", Locale("es", "ES")).format(fixedExpenseEndDate)
+                                        val fixedEndDateFmt = SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("es-ES")).format(fixedExpenseEndDate)
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -2362,7 +2362,7 @@ fun AddCommitmentDialog(
                             }
 
                             activeFixedSchedule.forEachIndexed { idx, inst ->
-                                val dateFmt = SimpleDateFormat("dd/MM/yyyy", Locale("es", "ES")).format(inst.dueDate.toDate())
+                                val dateFmt = SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("es-ES")).format(inst.dueDate.toDate())
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
                                     color = SlateBackground,

@@ -8,6 +8,7 @@ import com.example.data.currency.CurrencyService
 import com.example.data.currency.ExchangeRates
 import com.example.data.model.Account
 import com.example.data.model.AccountType
+import com.example.data.model.CloudBackupItem
 import com.example.data.model.CommitmentStatus
 import com.example.data.model.ExpenseCommitment
 import com.example.data.model.Frequency
@@ -88,6 +89,10 @@ class FinanceViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val marketplaceTemplates: StateFlow<List<MarketTemplate>> = repository.observeMarketplaceTemplates()
+        .catch { emit(emptyList()) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val cloudBackups: StateFlow<List<CloudBackupItem>> = repository.observeCloudBackups(currentUserId)
         .catch { emit(emptyList()) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -239,7 +244,7 @@ class FinanceViewModel(
             val isIncome = type == "Ingreso Periódico"
             val delta = if (isIncome) amount else -amount
             runningBalance += delta
-            val sdf = java.text.SimpleDateFormat("dd MMM", java.util.Locale("es", "ES"))
+            val sdf = java.text.SimpleDateFormat("dd MMM", java.util.Locale.forLanguageTag("es-ES"))
             points.add(
                 CashflowPoint(
                     date = date,
@@ -567,6 +572,25 @@ class FinanceViewModel(
                 _userMessage.value = UiMessage.Success("Respaldo restaurado: ${parsed.accounts.size} cuentas, ${parsed.commitments.size} compromisos")
             } catch (e: Exception) {
                 _errorMessage.value = "Error al importar respaldo: ${e.localizedMessage}"
+            }
+        }
+    }
+
+    fun restoreCloudBackup(item: CloudBackupItem) {
+        if (item.payload.isNotBlank()) {
+            importBackup(item.payload)
+        } else {
+            _errorMessage.value = "Este punto de respaldo no contiene datos válidos."
+        }
+    }
+
+    fun deleteCloudBackup(item: CloudBackupItem) {
+        viewModelScope.launch {
+            try {
+                repository.deleteCloudBackup(currentUserId, item.id)
+                _userMessage.value = UiMessage.Success("Respaldo eliminado de la nube")
+            } catch (e: Exception) {
+                _errorMessage.value = "Error al eliminar respaldo: ${e.localizedMessage}"
             }
         }
     }
