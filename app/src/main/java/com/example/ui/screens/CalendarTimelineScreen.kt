@@ -1502,11 +1502,14 @@ private fun generatePlannedEvents(
     // 1. Commitments (Debts & Fixed Expenses)
     commitments.forEach { c ->
         val commCurr = AppCurrency.fromCode(c.currency)
+        val commitmentEndLimitMs = c.endDate?.toDate()?.time
+
         if (!c.isFixedExpense) {
             // Installment Debts
             c.getProjectedInstallments().forEach { inst ->
                 val instDate = inst.dueDate.toDate()
-                if (instDate.time in startMs..endMs) {
+                val instMs = instDate.time
+                if (instMs in startMs..endMs && (commitmentEndLimitMs == null || instMs <= commitmentEndLimitMs)) {
                     events.add(
                         PlannedEvent(
                             id = "comm_${c.id}_${inst.number}",
@@ -1525,47 +1528,133 @@ private fun generatePlannedEvents(
                 }
             }
         } else {
-            // Fixed Expenses recurring projection
-            val freq = Frequency.entries.find { it.name == c.frequency } ?: Frequency.MONTHLY
-            val baseCal = Calendar.getInstance().apply { time = c.dueDate.toDate() }
-
-            val iterCal = Calendar.getInstance().apply {
-                time = baseCal.time
-                while (time.before(startDate)) {
-                    when (freq) {
-                        Frequency.WEEKLY -> add(Calendar.DAY_OF_YEAR, 7)
-                        Frequency.BIWEEKLY -> add(Calendar.DAY_OF_YEAR, 15)
-                        Frequency.MONTHLY -> add(Calendar.MONTH, 1)
-                        Frequency.CUSTOM -> add(Calendar.DAY_OF_YEAR, c.customDays.coerceAtLeast(1))
+            // Fixed Expenses: if custom installments were saved/planned, use them
+            if (c.installments.isNotEmpty()) {
+                c.getProjectedInstallments().forEach { inst ->
+                    val instDate = inst.dueDate.toDate()
+                    val instMs = instDate.time
+                    if (instMs in startMs..endMs && (commitmentEndLimitMs == null || instMs <= commitmentEndLimitMs)) {
+                        val isPaidInCycle = inst.isPaid || (instDate.before(Date()) && c.status == CommitmentStatus.PAID_OFF.name)
+                        events.add(
+                            PlannedEvent(
+                                id = "fixed_${c.id}_${inst.number}_${instMs}",
+                                title = c.title,
+                                dueDate = instDate,
+                                amount = inst.amount,
+                                currency = commCurr,
+                                isFixed = true,
+                                isIncome = false,
+                                isPaid = isPaidInCycle,
+                                installmentInfo = "Gasto Fijo #${inst.number}",
+                                commitment = c,
+                                installmentNumber = inst.number
+                            )
+                        )
                     }
                 }
-            }
+            } else {
+                // Fixed Expenses recurring projection
+                val freq = Frequency.entries.find { it.name == c.frequency } ?: Frequency.MONTHLY
+                val baseCal = Calendar.getInstance().apply { time = c.dueDate.toDate() }
+                val baseDayOfMonth = baseCal.get(Calendar.DAY_OF_MONTH)
 
-            while (!iterCal.time.after(endDate)) {
-                val occurrenceDate = iterCal.time
-                if (occurrenceDate.time in startMs..endMs) {
-                    val isPaidInCycle = occurrenceDate.before(Date()) && c.status == CommitmentStatus.PAID_OFF.name
-                    events.add(
-                        PlannedEvent(
-                            id = "fixed_${c.id}_${occurrenceDate.time}",
-                            title = c.title,
-                            dueDate = occurrenceDate,
-                            amount = if (c.installmentAmount > 0) c.installmentAmount else c.totalAmount,
-                            currency = commCurr,
-                            isFixed = true,
-                            isIncome = false,
-                            isPaid = isPaidInCycle,
-                            installmentInfo = "Gasto Fijo",
-                            commitment = c,
-                            installmentNumber = null
-                        )
-                    )
+                val iterCal = Calendar.getInstance().apply {
+                    time = baseCal.time
+                    while (time.before(startDate)) {
+                        when (freq) {
+                            Frequency.WEEKLY -> add(Calendar.DAY_OF_YEAR, 7)
+                            Frequency.BIWEEKLY -> add(Calendar.DAY_OF_YEAR, 15)
+                            Frequency.MONTHLY -> {
+                                add(Calendar.MONTH, 1)
+                                val maxDay = getActualMaximum(Calendar.DAY_OF_MONTH)
+                                set(Calendar.DAY_OF_MONTH, baseDayOfMonth.coerceAtMost(maxDay))
+                            }
+                            Frequency.BIMONTHLY -> {
+                                add(Calendar.MONTH, 2)
+                                val maxDay = getActualMaximum(Calendar.DAY_OF_MONTH)
+                                set(Calendar.DAY_OF_MONTH, baseDayOfMonth.coerceAtMost(maxDay))
+                            }
+                            Frequency.QUARTERLY -> {
+                                add(Calendar.MONTH, 3)
+                                val maxDay = getActualMaximum(Calendar.DAY_OF_MONTH)
+                                set(Calendar.DAY_OF_MONTH, baseDayOfMonth.coerceAtMost(maxDay))
+                            }
+                            Frequency.FOUR_MONTHLY -> {
+                                add(Calendar.MONTH, 4)
+                                val maxDay = getActualMaximum(Calendar.DAY_OF_MONTH)
+                                set(Calendar.DAY_OF_MONTH, baseDayOfMonth.coerceAtMost(maxDay))
+                            }
+                            Frequency.SEMIANNUAL -> {
+                                add(Calendar.MONTH, 6)
+                                val maxDay = getActualMaximum(Calendar.DAY_OF_MONTH)
+                                set(Calendar.DAY_OF_MONTH, baseDayOfMonth.coerceAtMost(maxDay))
+                            }
+                            Frequency.ANNUAL -> {
+                                add(Calendar.YEAR, 1)
+                                val maxDay = getActualMaximum(Calendar.DAY_OF_MONTH)
+                                set(Calendar.DAY_OF_MONTH, baseDayOfMonth.coerceAtMost(maxDay))
+                            }
+                            Frequency.CUSTOM -> add(Calendar.DAY_OF_YEAR, c.customDays.coerceAtLeast(1))
+                        }
+                    }
                 }
-                when (freq) {
-                    Frequency.WEEKLY -> iterCal.add(Calendar.DAY_OF_YEAR, 7)
-                    Frequency.BIWEEKLY -> iterCal.add(Calendar.DAY_OF_YEAR, 15)
-                    Frequency.MONTHLY -> iterCal.add(Calendar.MONTH, 1)
-                    Frequency.CUSTOM -> iterCal.add(Calendar.DAY_OF_YEAR, c.customDays.coerceAtLeast(1))
+
+                while (!iterCal.time.after(endDate) && (commitmentEndLimitMs == null || iterCal.time.time <= commitmentEndLimitMs)) {
+                    val occurrenceDate = iterCal.time
+                    val occMs = occurrenceDate.time
+                    if (occMs in startMs..endMs && (commitmentEndLimitMs == null || occMs <= commitmentEndLimitMs)) {
+                        val isPaidInCycle = occurrenceDate.before(Date()) && c.status == CommitmentStatus.PAID_OFF.name
+                        events.add(
+                            PlannedEvent(
+                                id = "fixed_${c.id}_${occMs}",
+                                title = c.title,
+                                dueDate = occurrenceDate,
+                                amount = if (c.installmentAmount > 0) c.installmentAmount else c.totalAmount,
+                                currency = commCurr,
+                                isFixed = true,
+                                isIncome = false,
+                                isPaid = isPaidInCycle,
+                                installmentInfo = "Gasto Fijo",
+                                commitment = c,
+                                installmentNumber = null
+                            )
+                        )
+                    }
+                    when (freq) {
+                        Frequency.WEEKLY -> iterCal.add(Calendar.DAY_OF_YEAR, 7)
+                        Frequency.BIWEEKLY -> iterCal.add(Calendar.DAY_OF_YEAR, 15)
+                        Frequency.MONTHLY -> {
+                            iterCal.add(Calendar.MONTH, 1)
+                            val maxDay = iterCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                            iterCal.set(Calendar.DAY_OF_MONTH, baseDayOfMonth.coerceAtMost(maxDay))
+                        }
+                        Frequency.BIMONTHLY -> {
+                            iterCal.add(Calendar.MONTH, 2)
+                            val maxDay = iterCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                            iterCal.set(Calendar.DAY_OF_MONTH, baseDayOfMonth.coerceAtMost(maxDay))
+                        }
+                        Frequency.QUARTERLY -> {
+                            iterCal.add(Calendar.MONTH, 3)
+                            val maxDay = iterCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                            iterCal.set(Calendar.DAY_OF_MONTH, baseDayOfMonth.coerceAtMost(maxDay))
+                        }
+                        Frequency.FOUR_MONTHLY -> {
+                            iterCal.add(Calendar.MONTH, 4)
+                            val maxDay = iterCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                            iterCal.set(Calendar.DAY_OF_MONTH, baseDayOfMonth.coerceAtMost(maxDay))
+                        }
+                        Frequency.SEMIANNUAL -> {
+                            iterCal.add(Calendar.MONTH, 6)
+                            val maxDay = iterCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                            iterCal.set(Calendar.DAY_OF_MONTH, baseDayOfMonth.coerceAtMost(maxDay))
+                        }
+                        Frequency.ANNUAL -> {
+                            iterCal.add(Calendar.YEAR, 1)
+                            val maxDay = iterCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                            iterCal.set(Calendar.DAY_OF_MONTH, baseDayOfMonth.coerceAtMost(maxDay))
+                        }
+                        Frequency.CUSTOM -> iterCal.add(Calendar.DAY_OF_YEAR, c.customDays.coerceAtLeast(1))
+                    }
                 }
             }
         }

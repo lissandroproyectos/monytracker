@@ -870,6 +870,66 @@ fun showPlatformDatePicker(context: android.content.Context, initialDate: Date, 
     ).show()
 }
 
+// Cascade recalculates all subsequent installments when any installment's date is adjusted
+fun cascadeRecalculateInstallments(
+    schedule: List<ProjectedInstallment>,
+    changedIndex: Int,
+    newDate: Date,
+    frequency: Frequency,
+    customDays: Int
+): List<ProjectedInstallment> {
+    val updated = schedule.toMutableList()
+    // 1. Update the chosen installment
+    updated[changedIndex] = updated[changedIndex].copy(dueDate = Timestamp(newDate))
+
+    val baseCal = Calendar.getInstance().apply { time = newDate }
+    val baseDayOfMonth = baseCal.get(Calendar.DAY_OF_MONTH)
+
+    // 2. Cascade recalculate all subsequent installments based on the newly adjusted date
+    var step = 1
+    for (i in (changedIndex + 1) until updated.size) {
+        val nextCal = baseCal.clone() as Calendar
+        when (frequency) {
+            Frequency.WEEKLY -> nextCal.add(Calendar.WEEK_OF_YEAR, step)
+            Frequency.BIWEEKLY -> nextCal.add(Calendar.DAY_OF_YEAR, step * 15)
+            Frequency.MONTHLY -> {
+                nextCal.add(Calendar.MONTH, step)
+                val maxDay = nextCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                nextCal.set(Calendar.DAY_OF_MONTH, baseDayOfMonth.coerceAtMost(maxDay))
+            }
+            Frequency.BIMONTHLY -> {
+                nextCal.add(Calendar.MONTH, step * 2)
+                val maxDay = nextCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                nextCal.set(Calendar.DAY_OF_MONTH, baseDayOfMonth.coerceAtMost(maxDay))
+            }
+            Frequency.QUARTERLY -> {
+                nextCal.add(Calendar.MONTH, step * 3)
+                val maxDay = nextCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                nextCal.set(Calendar.DAY_OF_MONTH, baseDayOfMonth.coerceAtMost(maxDay))
+            }
+            Frequency.FOUR_MONTHLY -> {
+                nextCal.add(Calendar.MONTH, step * 4)
+                val maxDay = nextCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                nextCal.set(Calendar.DAY_OF_MONTH, baseDayOfMonth.coerceAtMost(maxDay))
+            }
+            Frequency.SEMIANNUAL -> {
+                nextCal.add(Calendar.MONTH, step * 6)
+                val maxDay = nextCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                nextCal.set(Calendar.DAY_OF_MONTH, baseDayOfMonth.coerceAtMost(maxDay))
+            }
+            Frequency.ANNUAL -> {
+                nextCal.add(Calendar.YEAR, step)
+                val maxDay = nextCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                nextCal.set(Calendar.DAY_OF_MONTH, baseDayOfMonth.coerceAtMost(maxDay))
+            }
+            Frequency.CUSTOM -> nextCal.add(Calendar.DAY_OF_YEAR, step * customDays)
+        }
+        updated[i] = updated[i].copy(dueDate = Timestamp(nextCal.time))
+        step++
+    }
+    return updated
+}
+
 // Dialog to add Fixed Expense or Temporary Debt (Cuotas / Créditos)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -894,6 +954,9 @@ fun AddCommitmentDialog(
     var isFixedExpense by remember {
         mutableStateOf(commitmentToEdit?.isFixedExpense ?: initialIsFixed)
     }
+    var commitmentStartDate by remember {
+        mutableStateOf(commitmentToEdit?.startDate?.toDate() ?: Date())
+    }
     var totalAmountText by remember {
         mutableStateOf(if (commitmentToEdit != null) commitmentToEdit.totalAmount.toString() else "")
     }
@@ -908,6 +971,15 @@ fun AddCommitmentDialog(
     }
     var fixedExpenseDueDate by remember {
         mutableStateOf(commitmentToEdit?.dueDate?.toDate() ?: Date())
+    }
+    var hasEndDate by remember {
+        mutableStateOf(commitmentToEdit?.endDate != null)
+    }
+    var fixedExpenseEndDate by remember {
+        mutableStateOf(commitmentToEdit?.endDate?.toDate() ?: Calendar.getInstance().apply { add(Calendar.YEAR, 1) }.time)
+    }
+    var fixedCyclesCountText by remember {
+        mutableStateOf((if (commitmentToEdit != null && commitmentToEdit.installments.isNotEmpty()) commitmentToEdit.installments.size.toLong() else 6L).toString())
     }
     var selectedCurrency by remember {
         mutableStateOf(
@@ -984,6 +1056,11 @@ fun AddCommitmentDialog(
         Frequency.WEEKLY -> (totalInstallments * 7.0) / 30.0
         Frequency.BIWEEKLY -> (totalInstallments * 15.0) / 30.0
         Frequency.MONTHLY -> totalInstallments.toDouble()
+        Frequency.BIMONTHLY -> totalInstallments.toDouble() * 2.0
+        Frequency.QUARTERLY -> totalInstallments.toDouble() * 3.0
+        Frequency.FOUR_MONTHLY -> totalInstallments.toDouble() * 4.0
+        Frequency.SEMIANNUAL -> totalInstallments.toDouble() * 6.0
+        Frequency.ANNUAL -> totalInstallments.toDouble() * 12.0
         Frequency.CUSTOM -> (totalInstallments * customDays.toDouble()) / 30.0
     }
 
@@ -999,10 +1076,19 @@ fun AddCommitmentDialog(
     val totalWithInterest = downPayment + totalFinancedWithInterest
     val calculatedInstallmentAmount = if (totalInstallments > 0 && totalFinancedWithInterest > 0) totalFinancedWithInterest / totalInstallments else 0.0
 
-    // Planned installments: initialized from existing or generated
+    // Planned installments for debts
     var customInstallments by remember {
         mutableStateOf<List<ProjectedInstallment>>(
-            if (commitmentToEdit != null && commitmentToEdit.installments.isNotEmpty()) {
+            if (commitmentToEdit != null && !commitmentToEdit.isFixedExpense && commitmentToEdit.installments.isNotEmpty()) {
+                commitmentToEdit.getProjectedInstallments()
+            } else emptyList()
+        )
+    }
+
+    // Planned installments for fixed expenses
+    var customFixedInstallments by remember {
+        mutableStateOf<List<ProjectedInstallment>>(
+            if (commitmentToEdit != null && commitmentToEdit.isFixedExpense && commitmentToEdit.installments.isNotEmpty()) {
                 commitmentToEdit.getProjectedInstallments()
             } else emptyList()
         )
@@ -1599,11 +1685,71 @@ fun AddCommitmentDialog(
                         }
                     }
 
+                    // Fecha de inicio (cuando ocurrió el egreso / emisión de la deuda)
+                    val debtStartCal = Calendar.getInstance().apply { time = commitmentStartDate }
+                    val debtStartDayOfMonth = debtStartCal.get(Calendar.DAY_OF_MONTH)
+                    val debtStartDateFmt = SimpleDateFormat("dd/MM/yyyy", Locale("es", "ES")).format(commitmentStartDate)
+
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = SlateCardLight,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Fecha de inicio del egreso / compra:",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimaryDark
+                                    )
+                                    Text(
+                                        text = when (frequency) {
+                                            Frequency.MONTHLY -> "Día de pago recurrente: día $debtStartDayOfMonth de cada mes"
+                                            Frequency.BIMONTHLY -> "Día de pago recurrente: cada 2 meses el día $debtStartDayOfMonth"
+                                            Frequency.QUARTERLY -> "Día de pago recurrente: cada 3 meses el día $debtStartDayOfMonth"
+                                            Frequency.FOUR_MONTHLY -> "Día de pago recurrente: cada 4 meses el día $debtStartDayOfMonth"
+                                            Frequency.SEMIANNUAL -> "Día de pago recurrente: cada 6 meses el día $debtStartDayOfMonth"
+                                            Frequency.ANNUAL -> "Día de pago recurrente: anualmente cada $debtStartDayOfMonth de " + SimpleDateFormat("MMMM", Locale("es", "ES")).format(commitmentStartDate)
+                                            Frequency.BIWEEKLY -> "Día de pago recurrente: cada 15 días a partir del $debtStartDateFmt"
+                                            Frequency.WEEKLY -> "Día de pago recurrente: semanal a partir del $debtStartDateFmt"
+                                            Frequency.CUSTOM -> "Día de pago recurrente: cada $customDays días a partir del $debtStartDateFmt"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = EmeraldLight,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = EmeraldDark.copy(alpha = 0.35f),
+                                    modifier = Modifier.clickable {
+                                        showPlatformDatePicker(context, commitmentStartDate) { newDate ->
+                                            commitmentStartDate = newDate
+                                            customInstallments = emptyList() // Recalculates all cuotas based on new start date & day of month
+                                        }
+                                    }
+                                ) {
+                                    Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(debtStartDateFmt, color = EmeraldLight, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // If Frequency is CUSTOM, ask explicitly for the days
                     if (frequency == Frequency.CUSTOM) {
                         OutlinedTextField(
                             value = customDaysText,
-                            onValueChange = { customDaysText = it },
+                            onValueChange = { customDaysText = it; customInstallments = emptyList() },
                             label = { Text("Frecuencia personalizada: ¿Cada cuántos días se paga cada cuota?") },
                             placeholder = { Text("Ej. 45") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -1755,21 +1901,49 @@ fun AddCommitmentDialog(
                         }
                     }
 
-                    // 5. CRONOGRAMA DE CUOTAS PLANIFICADAS Y FECHAS EDITABLES!
-                    val activeSchedule = remember(customInstallments, totalInstallments, calculatedInstallmentAmount, frequency, customDays, alreadyPaidCount) {
+                    // 5. CRONOGRAMA DE CUOTAS PLANIFICADAS Y FECHAS EDITABLES PARA DEUDAS!
+                    val activeSchedule = remember(customInstallments, totalInstallments, calculatedInstallmentAmount, frequency, customDays, alreadyPaidCount, commitmentStartDate) {
                         if (customInstallments.isNotEmpty() && customInstallments.size == totalInstallments.toInt()) {
                             customInstallments
                         } else {
                             val list = mutableListOf<ProjectedInstallment>()
-                            val startCal = Calendar.getInstance().apply {
-                                time = commitmentToEdit?.startDate?.toDate() ?: Date()
-                            }
+                            val startCal = Calendar.getInstance().apply { time = commitmentStartDate }
+                            val startDayOfMonth = startCal.get(Calendar.DAY_OF_MONTH)
                             for (i in 1..totalInstallments.toInt()) {
                                 val dueCal = startCal.clone() as Calendar
                                 when (frequency) {
                                     Frequency.WEEKLY -> dueCal.add(Calendar.WEEK_OF_YEAR, i)
                                     Frequency.BIWEEKLY -> dueCal.add(Calendar.DAY_OF_YEAR, i * 15)
-                                    Frequency.MONTHLY -> dueCal.add(Calendar.MONTH, i)
+                                    Frequency.MONTHLY -> {
+                                        dueCal.add(Calendar.MONTH, i)
+                                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
+                                    }
+                                    Frequency.BIMONTHLY -> {
+                                        dueCal.add(Calendar.MONTH, i * 2)
+                                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
+                                    }
+                                    Frequency.QUARTERLY -> {
+                                        dueCal.add(Calendar.MONTH, i * 3)
+                                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
+                                    }
+                                    Frequency.FOUR_MONTHLY -> {
+                                        dueCal.add(Calendar.MONTH, i * 4)
+                                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
+                                    }
+                                    Frequency.SEMIANNUAL -> {
+                                        dueCal.add(Calendar.MONTH, i * 6)
+                                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
+                                    }
+                                    Frequency.ANNUAL -> {
+                                        dueCal.add(Calendar.YEAR, i)
+                                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
+                                    }
                                     Frequency.CUSTOM -> dueCal.add(Calendar.DAY_OF_YEAR, i * customDays)
                                 }
                                 val isPaid = i <= alreadyPaidCount
@@ -1809,10 +1983,11 @@ fun AddCommitmentDialog(
                                     )
                                 }
                                 Text(
-                                    text = "Toca la fecha para editar",
+                                    text = "Toca para editar (cascada)",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = TextSecondaryDark,
-                                    fontSize = 10.sp
+                                    color = EmeraldLight,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
 
@@ -1837,15 +2012,20 @@ fun AddCommitmentDialog(
                                             color = TextPrimaryDark
                                         )
 
-                                        // Clickable date chip to edit date!
+                                        // Clickable date chip with cascade recalculation!
                                         Surface(
                                             shape = RoundedCornerShape(6.dp),
                                             color = EmeraldDark.copy(alpha = 0.35f),
                                             modifier = Modifier.clickable {
                                                 showPlatformDatePicker(context, inst.dueDate.toDate()) { newDate ->
-                                                    val updated = activeSchedule.toMutableList()
-                                                    updated[idx] = inst.copy(dueDate = Timestamp(newDate))
-                                                    customInstallments = updated
+                                                    val cascaded = cascadeRecalculateInstallments(
+                                                        schedule = activeSchedule,
+                                                        changedIndex = idx,
+                                                        newDate = newDate,
+                                                        frequency = frequency,
+                                                        customDays = customDays
+                                                    )
+                                                    customInstallments = cascaded
                                                 }
                                             }
                                         ) {
@@ -1892,7 +2072,69 @@ fun AddCommitmentDialog(
                         }
                     }
                 } else {
-                    // GASTO FIJO RECURRENTE (Con periodicidad y próximo vencimiento)
+                    // GASTO FIJO RECURRENTE (Con periodicidad, fecha fin opcional y cuotas planificadas)
+                    val fixedCyclesCount = (fixedCyclesCountText.toIntOrNull() ?: 6).coerceIn(1, 48)
+                    val activeFixedSchedule = remember(customFixedInstallments, fixedCyclesCount, totalAmount, frequency, customDays, fixedExpenseDueDate, hasEndDate, fixedExpenseEndDate) {
+                        if (customFixedInstallments.isNotEmpty() && customFixedInstallments.size == fixedCyclesCount) {
+                            customFixedInstallments
+                        } else {
+                            val list = mutableListOf<ProjectedInstallment>()
+                            val startCal = Calendar.getInstance().apply { time = fixedExpenseDueDate }
+                            val startDayOfMonth = startCal.get(Calendar.DAY_OF_MONTH)
+                            for (i in 1..fixedCyclesCount) {
+                                val dueCal = startCal.clone() as Calendar
+                                when (frequency) {
+                                    Frequency.WEEKLY -> dueCal.add(Calendar.WEEK_OF_YEAR, i - 1)
+                                    Frequency.BIWEEKLY -> dueCal.add(Calendar.DAY_OF_YEAR, (i - 1) * 15)
+                                    Frequency.MONTHLY -> {
+                                        dueCal.add(Calendar.MONTH, i - 1)
+                                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
+                                    }
+                                    Frequency.BIMONTHLY -> {
+                                        dueCal.add(Calendar.MONTH, (i - 1) * 2)
+                                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
+                                    }
+                                    Frequency.QUARTERLY -> {
+                                        dueCal.add(Calendar.MONTH, (i - 1) * 3)
+                                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
+                                    }
+                                    Frequency.FOUR_MONTHLY -> {
+                                        dueCal.add(Calendar.MONTH, (i - 1) * 4)
+                                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
+                                    }
+                                    Frequency.SEMIANNUAL -> {
+                                        dueCal.add(Calendar.MONTH, (i - 1) * 6)
+                                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
+                                    }
+                                    Frequency.ANNUAL -> {
+                                        dueCal.add(Calendar.YEAR, i - 1)
+                                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
+                                    }
+                                    Frequency.CUSTOM -> dueCal.add(Calendar.DAY_OF_YEAR, (i - 1) * customDays)
+                                }
+                                if (hasEndDate && dueCal.time.after(fixedExpenseEndDate)) {
+                                    break
+                                }
+                                list.add(
+                                    ProjectedInstallment(
+                                        number = i.toLong(),
+                                        dueDate = Timestamp(dueCal.time),
+                                        amount = totalAmount,
+                                        isPaid = false,
+                                        paidDate = null
+                                    )
+                                )
+                            }
+                            list
+                        }
+                    }
+
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = SlateCardLight),
@@ -1929,6 +2171,7 @@ fun AddCommitmentDialog(
                                             onClick = {
                                                 frequency = f
                                                 freqExpanded = false
+                                                customFixedInstallments = emptyList()
                                             }
                                         )
                                     }
@@ -1938,7 +2181,10 @@ fun AddCommitmentDialog(
                             if (frequency == Frequency.CUSTOM) {
                                 OutlinedTextField(
                                     value = customDaysText,
-                                    onValueChange = { customDaysText = it },
+                                    onValueChange = {
+                                        customDaysText = it
+                                        customFixedInstallments = emptyList()
+                                    },
                                     label = { Text("¿Cada cuántos días se repite?") },
                                     placeholder = { Text("Ej. 30") },
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -1947,23 +2193,45 @@ fun AddCommitmentDialog(
                                 )
                             }
 
+                            val fixedStartCal = Calendar.getInstance().apply { time = fixedExpenseDueDate }
+                            val fixedStartDayOfMonth = fixedStartCal.get(Calendar.DAY_OF_MONTH)
                             val fixedDueDateFmt = SimpleDateFormat("dd/MM/yyyy", Locale("es", "ES")).format(fixedExpenseDueDate)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = "Próximo cobro o vencimiento:",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = TextSecondaryDark
-                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Fecha primer cobro / inicio:",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimaryDark
+                                    )
+                                    Text(
+                                        text = when (frequency) {
+                                            Frequency.MONTHLY -> "Día de pago recurrente: día $fixedStartDayOfMonth de cada mes"
+                                            Frequency.BIMONTHLY -> "Día de pago recurrente: cada 2 meses el día $fixedStartDayOfMonth"
+                                            Frequency.QUARTERLY -> "Día de pago recurrente: cada 3 meses el día $fixedStartDayOfMonth"
+                                            Frequency.FOUR_MONTHLY -> "Día de pago recurrente: cada 4 meses el día $fixedStartDayOfMonth"
+                                            Frequency.SEMIANNUAL -> "Día de pago recurrente: cada 6 meses el día $fixedStartDayOfMonth"
+                                            Frequency.ANNUAL -> "Día de pago recurrente: cada año el día $fixedStartDayOfMonth de " + SimpleDateFormat("MMMM", Locale("es", "ES")).format(fixedExpenseDueDate)
+                                            Frequency.BIWEEKLY -> "Día de pago recurrente: cada 15 días a partir del $fixedDueDateFmt"
+                                            Frequency.WEEKLY -> "Día de pago recurrente: semanal a partir del $fixedDueDateFmt"
+                                            Frequency.CUSTOM -> "Día de pago recurrente: cada $customDays días a partir del $fixedDueDateFmt"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = EmeraldLight,
+                                        fontSize = 11.sp
+                                    )
+                                }
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
                                     color = EmeraldDark.copy(alpha = 0.35f),
                                     modifier = Modifier.clickable {
                                         showPlatformDatePicker(context, fixedExpenseDueDate) { newDate ->
                                             fixedExpenseDueDate = newDate
+                                            customFixedInstallments = emptyList()
                                         }
                                     }
                                 ) {
@@ -1971,6 +2239,202 @@ fun AddCommitmentDialog(
                                         Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(16.dp))
                                         Spacer(Modifier.width(6.dp))
                                         Text(fixedDueDateFmt, color = EmeraldLight, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+
+                            // Optional End Date
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = SlateBackground,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth().clickable {
+                                            hasEndDate = !hasEndDate
+                                            customFixedInstallments = emptyList()
+                                        }
+                                    ) {
+                                        Checkbox(
+                                            checked = hasEndDate,
+                                            onCheckedChange = {
+                                                hasEndDate = it
+                                                customFixedInstallments = emptyList()
+                                            }
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "¿Tiene fecha de finalización? (opcional)",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = TextPrimaryDark
+                                            )
+                                            Text(
+                                                text = if (hasEndDate) "No se proyectarán cuotas después de la fecha fin" else "Gasto recurrente permanente / indefinido",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = if (hasEndDate) EmeraldLight else TextSecondaryDark,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    }
+
+                                    if (hasEndDate) {
+                                        Spacer(Modifier.height(8.dp))
+                                        val fixedEndDateFmt = SimpleDateFormat("dd/MM/yyyy", Locale("es", "ES")).format(fixedExpenseEndDate)
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "Fecha de fin / expiración:",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = TextSecondaryDark
+                                            )
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = EmeraldDark.copy(alpha = 0.35f),
+                                                modifier = Modifier.clickable {
+                                                    showPlatformDatePicker(context, fixedExpenseEndDate) { newDate ->
+                                                        fixedExpenseEndDate = newDate
+                                                        customFixedInstallments = emptyList()
+                                                    }
+                                                }
+                                            ) {
+                                                Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(16.dp))
+                                                    Spacer(Modifier.width(6.dp))
+                                                    Text(fixedEndDateFmt, color = EmeraldLight, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            OutlinedTextField(
+                                value = fixedCyclesCountText,
+                                onValueChange = {
+                                    fixedCyclesCountText = it
+                                    customFixedInstallments = emptyList()
+                                },
+                                label = { Text("Número de pagos o cuotas a planificar") },
+                                placeholder = { Text("6") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                        }
+                    }
+
+                    // CRONOGRAMA DE CUOTAS PLANIFICADAS PARA GASTO FIJO
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = SlateCardLight),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = "Cuotas Planificadas del Gasto Fijo",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimaryDark
+                                    )
+                                }
+                                Text(
+                                    text = "Toca para ajustar (cascada)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = EmeraldLight,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            activeFixedSchedule.forEachIndexed { idx, inst ->
+                                val dateFmt = SimpleDateFormat("dd/MM/yyyy", Locale("es", "ES")).format(inst.dueDate.toDate())
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = SlateBackground,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Pago #${inst.number}",
+                                            fontWeight = FontWeight.Bold,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextPrimaryDark
+                                        )
+
+                                        // Clickable date chip with cascade recalculation!
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = EmeraldDark.copy(alpha = 0.35f),
+                                            modifier = Modifier.clickable {
+                                                showPlatformDatePicker(context, inst.dueDate.toDate()) { newDate ->
+                                                    val cascaded = cascadeRecalculateInstallments(
+                                                        schedule = activeFixedSchedule,
+                                                        changedIndex = idx,
+                                                        newDate = newDate,
+                                                        frequency = frequency,
+                                                        customDays = customDays
+                                                    )
+                                                    customFixedInstallments = cascaded
+                                                }
+                                            }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(Icons.Default.EditCalendar, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(14.dp))
+                                                Spacer(Modifier.width(4.dp))
+                                                Text(dateFmt, style = MaterialTheme.typography.labelSmall, color = EmeraldLight, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+
+                                        Text(
+                                            text = "${selectedCurrency.symbol} ${String.format(Locale.US, "%.2f", inst.amount)}",
+                                            fontWeight = FontWeight.Bold,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextPrimaryDark
+                                        )
+
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = if (inst.isPaid) EmeraldLight.copy(alpha = 0.2f) else AccentAmber.copy(alpha = 0.2f),
+                                            modifier = Modifier.clickable {
+                                                val updated = activeFixedSchedule.toMutableList()
+                                                val newPaid = !inst.isPaid
+                                                updated[idx] = inst.copy(isPaid = newPaid, paidDate = if (newPaid) Timestamp.now() else null)
+                                                customFixedInstallments = updated
+                                            }
+                                        ) {
+                                            Text(
+                                                text = if (inst.isPaid) "✓ Pagado" else "Pendiente",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = if (inst.isPaid) EmeraldLight else AccentAmber,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                                fontSize = 10.sp
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -2022,18 +2486,89 @@ fun AddCommitmentDialog(
                     Button(
                         onClick = {
                             if (title.isNotBlank() && totalAmount > 0) {
-                                val effectiveSchedule = if (!isFixedExpense) {
-                                    if (customInstallments.isNotEmpty() && customInstallments.size == totalInstallments.toInt()) {
+                                if (isFixedExpense) {
+                                    val fixedCyclesCount = (fixedCyclesCountText.toIntOrNull() ?: 6).coerceIn(1, 48)
+                                    val effectiveFixedSchedule = if (customFixedInstallments.isNotEmpty() && customFixedInstallments.size == fixedCyclesCount) {
+                                        customFixedInstallments
+                                    } else {
+                                        val list = mutableListOf<ProjectedInstallment>()
+                                        val startCal = Calendar.getInstance().apply { time = fixedExpenseDueDate }
+                                        for (i in 1..fixedCyclesCount) {
+                                            val dueCal = startCal.clone() as Calendar
+                                            when (frequency) {
+                                                Frequency.WEEKLY -> dueCal.add(Calendar.WEEK_OF_YEAR, i - 1)
+                                                Frequency.BIWEEKLY -> dueCal.add(Calendar.DAY_OF_YEAR, (i - 1) * 15)
+                                                Frequency.MONTHLY -> dueCal.add(Calendar.MONTH, i - 1)
+                                                Frequency.BIMONTHLY -> dueCal.add(Calendar.MONTH, (i - 1) * 2)
+                                                Frequency.QUARTERLY -> dueCal.add(Calendar.MONTH, (i - 1) * 3)
+                                                Frequency.FOUR_MONTHLY -> dueCal.add(Calendar.MONTH, (i - 1) * 4)
+                                                Frequency.SEMIANNUAL -> dueCal.add(Calendar.MONTH, (i - 1) * 6)
+                                                Frequency.ANNUAL -> dueCal.add(Calendar.YEAR, i - 1)
+                                                Frequency.CUSTOM -> dueCal.add(Calendar.DAY_OF_YEAR, (i - 1) * customDays)
+                                            }
+                                            if (hasEndDate && dueCal.time.after(fixedExpenseEndDate)) {
+                                                break
+                                            }
+                                            list.add(
+                                                ProjectedInstallment(
+                                                    number = i.toLong(),
+                                                    dueDate = Timestamp(dueCal.time),
+                                                    amount = totalAmount,
+                                                    isPaid = false,
+                                                    paidDate = null
+                                                )
+                                            )
+                                        }
+                                        list
+                                    }
+                                    val remaining = effectiveFixedSchedule.filter { !it.isPaid }.sumOf { it.amount }.let { if (it > 0) it else totalAmount }
+
+                                    onSave(
+                                        ExpenseCommitment(
+                                            id = commitmentToEdit?.id ?: "",
+                                            userId = commitmentToEdit?.userId ?: "",
+                                            title = title.trim(),
+                                            totalAmount = totalAmount,
+                                            remainingAmount = remaining,
+                                            paymentMode = PaymentMode.INSTALLMENTS.name,
+                                            category = selectedCategory,
+                                            isFixedExpense = true,
+                                            currency = selectedCurrency.name,
+                                            totalInstallments = effectiveFixedSchedule.size.toLong().coerceAtLeast(1L),
+                                            paidInstallments = effectiveFixedSchedule.count { it.isPaid }.toLong(),
+                                            installmentAmount = totalAmount,
+                                            downPayment = 0.0,
+                                            interestRate = 0.0,
+                                            isAnnualInterest = false,
+                                            customDays = customDays,
+                                            frequency = frequency.name,
+                                            startDate = effectiveFixedSchedule.firstOrNull()?.dueDate ?: Timestamp(fixedExpenseDueDate),
+                                            endDate = if (hasEndDate) Timestamp(fixedExpenseEndDate) else null,
+                                            dueDate = effectiveFixedSchedule.firstOrNull { !it.isPaid }?.dueDate ?: effectiveFixedSchedule.firstOrNull()?.dueDate ?: Timestamp(fixedExpenseDueDate),
+                                            accountId = defaultAccountId.ifBlank { null },
+                                            status = if (effectiveFixedSchedule.isNotEmpty() && effectiveFixedSchedule.all { it.isPaid }) CommitmentStatus.PAID_OFF.name else CommitmentStatus.ACTIVE.name,
+                                            notes = notes.trim().ifBlank { null },
+                                            installments = effectiveFixedSchedule.map { it.toMap() },
+                                            createdAt = commitmentToEdit?.createdAt
+                                        )
+                                    )
+                                } else {
+                                    val effectiveSchedule = if (customInstallments.isNotEmpty() && customInstallments.size == totalInstallments.toInt()) {
                                         customInstallments
                                     } else {
                                         val list = mutableListOf<ProjectedInstallment>()
-                                        val startCal = Calendar.getInstance().apply { time = commitmentToEdit?.startDate?.toDate() ?: Date() }
+                                        val startCal = Calendar.getInstance().apply { time = commitmentStartDate }
                                         for (i in 1..totalInstallments.toInt()) {
                                             val dueCal = startCal.clone() as Calendar
                                             when (frequency) {
                                                 Frequency.WEEKLY -> dueCal.add(Calendar.WEEK_OF_YEAR, i)
                                                 Frequency.BIWEEKLY -> dueCal.add(Calendar.DAY_OF_YEAR, i * 15)
                                                 Frequency.MONTHLY -> dueCal.add(Calendar.MONTH, i)
+                                                Frequency.BIMONTHLY -> dueCal.add(Calendar.MONTH, i * 2)
+                                                Frequency.QUARTERLY -> dueCal.add(Calendar.MONTH, i * 3)
+                                                Frequency.FOUR_MONTHLY -> dueCal.add(Calendar.MONTH, i * 4)
+                                                Frequency.SEMIANNUAL -> dueCal.add(Calendar.MONTH, i * 6)
+                                                Frequency.ANNUAL -> dueCal.add(Calendar.YEAR, i)
                                                 Frequency.CUSTOM -> dueCal.add(Calendar.DAY_OF_YEAR, i * customDays)
                                             }
                                             val isPaid = i <= alreadyPaidCount
@@ -2049,40 +2584,39 @@ fun AddCommitmentDialog(
                                         }
                                         list
                                     }
-                                } else emptyList()
 
-                                val effectiveTotal = if (!isFixedExpense) totalWithInterest else totalAmount
-                                val remaining = if (!isFixedExpense) {
-                                    effectiveSchedule.filter { !it.isPaid }.sumOf { it.amount }
-                                } else totalAmount
+                                    val effectiveTotal = totalWithInterest
+                                    val remaining = effectiveSchedule.filter { !it.isPaid }.sumOf { it.amount }
 
-                                onSave(
-                                    ExpenseCommitment(
-                                        id = commitmentToEdit?.id ?: "",
-                                        userId = commitmentToEdit?.userId ?: "",
-                                        title = title.trim(),
-                                        totalAmount = effectiveTotal,
-                                        remainingAmount = remaining,
-                                        paymentMode = if (isFixedExpense) PaymentMode.FULL.name else PaymentMode.INSTALLMENTS.name,
-                                        category = selectedCategory,
-                                        isFixedExpense = isFixedExpense,
-                                        currency = selectedCurrency.name,
-                                        totalInstallments = if (isFixedExpense) 1L else totalInstallments,
-                                        paidInstallments = if (isFixedExpense) 0L else effectiveSchedule.count { it.isPaid }.toLong(),
-                                        installmentAmount = if (isFixedExpense) totalAmount else calculatedInstallmentAmount,
-                                        downPayment = downPayment,
-                                        interestRate = if (applyInterest && !isFixedExpense) rawInterestRate else 0.0,
-                                        isAnnualInterest = isAnnualInterest,
-                                        customDays = customDays,
-                                        frequency = frequency.name,
-                                        dueDate = if (isFixedExpense) Timestamp(fixedExpenseDueDate) else (effectiveSchedule.firstOrNull()?.dueDate ?: Timestamp.now()),
-                                        accountId = defaultAccountId.ifBlank { null },
-                                        status = if (remaining <= 0.001) CommitmentStatus.PAID_OFF.name else CommitmentStatus.ACTIVE.name,
-                                        notes = notes.trim().ifBlank { null },
-                                        installments = effectiveSchedule.map { it.toMap() },
-                                        createdAt = commitmentToEdit?.createdAt
+                                    onSave(
+                                        ExpenseCommitment(
+                                            id = commitmentToEdit?.id ?: "",
+                                            userId = commitmentToEdit?.userId ?: "",
+                                            title = title.trim(),
+                                            totalAmount = effectiveTotal,
+                                            remainingAmount = remaining,
+                                            paymentMode = PaymentMode.INSTALLMENTS.name,
+                                            category = selectedCategory,
+                                            isFixedExpense = false,
+                                            currency = selectedCurrency.name,
+                                            totalInstallments = totalInstallments,
+                                            paidInstallments = effectiveSchedule.count { it.isPaid }.toLong(),
+                                            installmentAmount = calculatedInstallmentAmount,
+                                            downPayment = downPayment,
+                                            interestRate = if (applyInterest) rawInterestRate else 0.0,
+                                            isAnnualInterest = isAnnualInterest,
+                                            customDays = customDays,
+                                            frequency = frequency.name,
+                                            startDate = Timestamp(commitmentStartDate),
+                                            dueDate = effectiveSchedule.firstOrNull()?.dueDate ?: Timestamp.now(),
+                                            accountId = defaultAccountId.ifBlank { null },
+                                            status = if (remaining <= 0.001) CommitmentStatus.PAID_OFF.name else CommitmentStatus.ACTIVE.name,
+                                            notes = notes.trim().ifBlank { null },
+                                            installments = effectiveSchedule.map { it.toMap() },
+                                            createdAt = commitmentToEdit?.createdAt
+                                        )
                                     )
-                                )
+                                }
                                 onDismiss()
                             }
                         },
