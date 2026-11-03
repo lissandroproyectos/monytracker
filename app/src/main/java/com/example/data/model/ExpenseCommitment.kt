@@ -118,40 +118,41 @@ data class ExpenseCommitment(
 
         for (i in 1..count) {
             val dueCal = startCal.clone() as Calendar
+            val offset = i - 1
             when (freq) {
-                Frequency.WEEKLY -> dueCal.add(Calendar.WEEK_OF_YEAR, i)
-                Frequency.BIWEEKLY -> dueCal.add(Calendar.DAY_OF_YEAR, i * 15)
+                Frequency.WEEKLY -> dueCal.add(Calendar.WEEK_OF_YEAR, offset)
+                Frequency.BIWEEKLY -> dueCal.add(Calendar.DAY_OF_YEAR, offset * 15)
                 Frequency.MONTHLY -> {
-                    dueCal.add(Calendar.MONTH, i)
+                    dueCal.add(Calendar.MONTH, offset)
                     val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
                     dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
                 }
                 Frequency.BIMONTHLY -> {
-                    dueCal.add(Calendar.MONTH, i * 2)
+                    dueCal.add(Calendar.MONTH, offset * 2)
                     val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
                     dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
                 }
                 Frequency.QUARTERLY -> {
-                    dueCal.add(Calendar.MONTH, i * 3)
+                    dueCal.add(Calendar.MONTH, offset * 3)
                     val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
                     dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
                 }
                 Frequency.FOUR_MONTHLY -> {
-                    dueCal.add(Calendar.MONTH, i * 4)
+                    dueCal.add(Calendar.MONTH, offset * 4)
                     val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
                     dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
                 }
                 Frequency.SEMIANNUAL -> {
-                    dueCal.add(Calendar.MONTH, i * 6)
+                    dueCal.add(Calendar.MONTH, offset * 6)
                     val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
                     dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
                 }
                 Frequency.ANNUAL -> {
-                    dueCal.add(Calendar.YEAR, i)
+                    dueCal.add(Calendar.YEAR, offset)
                     val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
                     dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
                 }
-                Frequency.CUSTOM -> dueCal.add(Calendar.DAY_OF_YEAR, i * (if (customDays > 0) customDays else 30))
+                Frequency.CUSTOM -> dueCal.add(Calendar.DAY_OF_YEAR, offset * (if (customDays > 0) customDays else 30))
             }
             if (endDate != null && dueCal.time.after(endDate.toDate())) {
                 break

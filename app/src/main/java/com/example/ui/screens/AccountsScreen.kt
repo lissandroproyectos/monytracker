@@ -47,6 +47,9 @@ import com.example.ui.components.AddAccountDialog
 import com.example.ui.components.AddTransactionDialog
 import com.example.ui.components.formatCurrency
 import com.example.data.model.TransactionType
+import androidx.compose.material.icons.filled.Savings
+import com.example.data.model.AccountType
+import com.example.ui.theme.EmeraldDark
 import com.example.ui.theme.EmeraldLight
 import com.example.ui.theme.EmeraldPrimary
 import com.example.ui.theme.SlateBackground
@@ -66,6 +69,8 @@ fun AccountsScreen(
     var showTransferDialog by remember { mutableStateOf(false) }
 
     val totalBalance = accounts.sumOf { it.currentBalance }
+    val savingsAccounts = accounts.filter { it.isSavings || it.type == AccountType.SAVINGS.name }
+    val savingsTotal = savingsAccounts.sumOf { it.currentBalance }
 
     LazyColumn(
         modifier = modifier
@@ -122,6 +127,32 @@ fun AccountsScreen(
                                 Text("Transferir", fontWeight = FontWeight.SemiBold)
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        if (savingsAccounts.isNotEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = EmeraldDark.copy(alpha = 0.15f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Savings, contentDescription = null, tint = EmeraldLight)
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text("Ahorros y Colchón (${savingsAccounts.size})", fontWeight = FontWeight.Bold, color = TextPrimaryDark, fontSize = 14.sp)
+                                Text("Cuentas destinadas a reserva", style = MaterialTheme.typography.bodySmall, color = TextSecondaryDark, fontSize = 11.sp)
+                            }
+                        }
+                        Text(formatCurrency(savingsTotal), fontWeight = FontWeight.Bold, color = EmeraldLight, fontSize = 16.sp)
                     }
                 }
             }

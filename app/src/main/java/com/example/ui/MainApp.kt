@@ -81,14 +81,8 @@ import com.example.ui.screens.CommitmentsScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.MarketplaceScreen
 import com.example.ui.screens.TransactionsScreen
-import com.example.ui.theme.EmeraldDark
-import com.example.ui.theme.EmeraldLight
-import com.example.ui.theme.EmeraldPrimary
-import com.example.ui.theme.NavySurface
-import com.example.ui.theme.SlateBackground
-import com.example.ui.theme.SlateCard
-import com.example.ui.theme.TextPrimaryDark
-import com.example.ui.theme.TextSecondaryDark
+import com.example.ui.theme.*
+import com.example.ui.components.ProfileSettingsDialog
 
 enum class ScreenTab(
     val title: String,
@@ -96,8 +90,8 @@ enum class ScreenTab(
     val unselectedIcon: ImageVector
 ) {
     DASHBOARD("Resumen", Icons.Filled.Home, Icons.Outlined.Home),
-    COMMITMENTS("Gastos/Deudas", Icons.Filled.CalendarMonth, Icons.Outlined.CalendarMonth),
     TIMELINE("Calendario", Icons.Filled.ReceiptLong, Icons.Outlined.ReceiptLong),
+    COMMITMENTS("Egresos", Icons.Filled.CalendarMonth, Icons.Outlined.CalendarMonth),
     ACCOUNTS("Cuentas", Icons.Filled.AccountBalance, Icons.Outlined.AccountBalance)
 }
 
@@ -111,6 +105,7 @@ fun MainApp(
     var currentTab by remember { mutableStateOf(ScreenTab.DASHBOARD) }
     var showTransactionsScreen by remember { mutableStateOf(false) }
     var showSignOutConfirm by remember { mutableStateOf(false) }
+    var showProfileSettingsDialog by remember { mutableStateOf(false) }
     val activeFirebaseUser = remember { FirebaseAuth.getInstance().currentUser }
 
     // Dialog state
@@ -166,36 +161,6 @@ fun MainApp(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             CenterAlignedTopAppBar(
-                navigationIcon = {
-                    if (activeFirebaseUser != null) {
-                        Box(
-                            modifier = Modifier
-                                .padding(start = 8.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(EmeraldDark.copy(alpha = 0.35f))
-                                .clickable { showSignOutConfirm = true }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.AccountCircle,
-                                    contentDescription = "Usuario activo",
-                                    tint = EmeraldLight,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = activeFirebaseUser.email?.substringBefore("@") ?: "Google",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextPrimaryDark,
-                                    fontSize = 11.sp
-                                )
-                            }
-                        }
-                    }
-                },
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
@@ -225,48 +190,31 @@ fun MainApp(
                     containerColor = NavySurface
                 ),
                 actions = {
-                    IconButton(
-                        onClick = { showBackupDialog = true },
-                        modifier = Modifier.testTag("backup_button")
+                    Box(
+                        modifier = Modifier
+                            .padding(end = 12.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(EmeraldDark.copy(alpha = 0.35f))
+                            .clickable { showProfileSettingsDialog = true }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Backup,
-                            contentDescription = "Respaldar y Restaurar Datos",
-                            tint = EmeraldLight
-                        )
-                    }
-
-                    IconButton(
-                        onClick = { showCurrencySettingsDialog = true },
-                        modifier = Modifier.testTag("currency_settings_btn")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CurrencyExchange,
-                            contentDescription = "Configuración Monetaria",
-                            tint = EmeraldLight
-                        )
-                    }
-
-                    IconButton(
-                        onClick = { showUpdateDialog = true },
-                        modifier = Modifier.testTag("app_update_btn")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SystemUpdate,
-                            contentDescription = "Buscar Actualizaciones APK",
-                            tint = EmeraldLight
-                        )
-                    }
-
-                    IconButton(
-                        onClick = { showSignOutConfirm = true },
-                        modifier = Modifier.testTag("sign_out_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ExitToApp,
-                            contentDescription = "Cerrar sesión",
-                            tint = TextSecondaryDark
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.AccountCircle,
+                                contentDescription = "Perfil y Ajustes",
+                                tint = EmeraldLight,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = activeFirebaseUser?.email?.substringBefore("@") ?: "Ajustes",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimaryDark,
+                                fontSize = 12.sp
+                            )
+                        }
                     }
                 }
             )
@@ -480,6 +428,18 @@ fun MainApp(
         AppUpdateDialog(
             currentRepo = settings.githubRepo,
             onDismiss = { showUpdateDialog = false }
+        )
+    }
+
+    if (showProfileSettingsDialog) {
+        ProfileSettingsDialog(
+            displayCurrency = health.displayCurrency,
+            paymentCurrency = health.paymentCurrency,
+            onOpenCurrencySettings = { showCurrencySettingsDialog = true },
+            onOpenBackup = { showBackupDialog = true },
+            onOpenUpdate = { showUpdateDialog = true },
+            onSignOutClick = { showSignOutConfirm = true },
+            onDismiss = { showProfileSettingsDialog = false }
         )
     }
 }

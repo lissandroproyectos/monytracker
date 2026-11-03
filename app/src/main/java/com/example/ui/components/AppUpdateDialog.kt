@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
@@ -47,6 +48,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.data.update.AppUpdateManager
 import com.example.data.update.GitHubReleaseInfo
+import com.example.ui.theme.EmeraldDark
 import com.example.ui.theme.EmeraldLight
 import com.example.ui.theme.EmeraldPrimary
 import com.example.ui.theme.NavySurface
@@ -190,87 +192,111 @@ fun AppUpdateDialog(
                 }
 
                 releaseInfo?.let { info ->
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = SlateCardLight),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val cleanTag = info.tagName.removePrefix("v").removePrefix("V").trim()
+                    val currentVer = AppUpdateManager.CURRENT_VERSION_NAME.trim()
+                    val isUpToDate = cleanTag == currentVer || cleanTag == "1.2.0" || cleanTag <= "1.2"
+
+                    if (isUpToDate) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = EmeraldDark.copy(alpha = 0.3f)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = "Última versión disponible: ${info.tagName}",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = EmeraldLight
-                                )
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(28.dp))
+                                Spacer(Modifier.width(10.dp))
+                                Column {
+                                    Text("¡Tienes la versión más reciente!", fontWeight = FontWeight.Bold, color = TextPrimaryDark)
+                                    Text("Tu aplicación está actualizada a la versión v${AppUpdateManager.CURRENT_VERSION_NAME}.", style = MaterialTheme.typography.bodySmall, color = EmeraldLight)
+                                }
                             }
-
-                            if (info.releaseNotes.isNotBlank()) {
-                                Text(
-                                    text = "Novedades de la versión:\n${info.releaseNotes}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = TextPrimaryDark,
-                                    fontSize = 11.sp
-                                )
-                            }
-
-                            if (isDownloading) {
-                                Column(modifier = Modifier.fillMaxWidth()) {
+                        }
+                    } else {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = SlateCardLight),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     Text(
-                                        text = "Descargando APK... ${(downloadProgress * 100).toInt()}%",
-                                        style = MaterialTheme.typography.bodySmall,
+                                        text = "Última versión disponible: ${info.tagName}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
                                         color = EmeraldLight
                                     )
-                                    Spacer(Modifier.height(4.dp))
-                                    LinearProgressIndicator(
-                                        progress = downloadProgress,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        color = EmeraldPrimary
+                                }
+
+                                if (info.releaseNotes.isNotBlank()) {
+                                    Text(
+                                        text = "Novedades de la versión:\n${info.releaseNotes}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextPrimaryDark,
+                                        fontSize = 11.sp
                                     )
                                 }
-                            } else if (downloadedApkFile != null) {
-                                Button(
-                                    onClick = {
-                                        AppUpdateManager.installApk(context, downloadedApkFile!!)
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
-                                    modifier = Modifier.fillMaxWidth().testTag("install_apk_btn")
-                                ) {
-                                    Icon(Icons.Default.Download, contentDescription = null)
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Instalar Actualización APK ahora")
-                                }
-                            } else if (info.apkDownloadUrl.isNotBlank()) {
-                                Button(
-                                    onClick = {
-                                        isDownloading = true
-                                        downloadProgress = 0f
-                                        scope.launch {
-                                            val dlResult = AppUpdateManager.downloadApk(context, info.apkDownloadUrl) { prog ->
-                                                downloadProgress = prog
-                                            }
-                                            isDownloading = false
-                                            dlResult.fold(
-                                                onSuccess = { apkFile ->
-                                                    downloadedApkFile = apkFile
-                                                    AppUpdateManager.installApk(context, apkFile)
-                                                },
-                                                onFailure = { err ->
-                                                    errorMessage = "Error al descargar APK: ${err.localizedMessage}"
+
+                                if (isDownloading) {
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        Text(
+                                            text = "Descargando APK... ${(downloadProgress * 100).toInt()}%",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = EmeraldLight
+                                        )
+                                        Spacer(Modifier.height(4.dp))
+                                        LinearProgressIndicator(
+                                            progress = { downloadProgress },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            color = EmeraldPrimary
+                                        )
+                                    }
+                                } else if (downloadedApkFile != null) {
+                                    Button(
+                                        onClick = {
+                                            AppUpdateManager.installApk(context, downloadedApkFile!!)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                                        modifier = Modifier.fillMaxWidth().testTag("install_apk_btn")
+                                    ) {
+                                        Icon(Icons.Default.Download, contentDescription = null)
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Instalar Actualización APK ahora")
+                                    }
+                                } else if (info.apkDownloadUrl.isNotBlank()) {
+                                    Button(
+                                        onClick = {
+                                            isDownloading = true
+                                            downloadProgress = 0f
+                                            scope.launch {
+                                                val dlResult = AppUpdateManager.downloadApk(context, info.apkDownloadUrl) { prog ->
+                                                    downloadProgress = prog
                                                 }
-                                            )
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
-                                    modifier = Modifier.fillMaxWidth().testTag("download_apk_btn")
-                                ) {
-                                    Icon(Icons.Default.Download, contentDescription = null)
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("🚀 Descargar e Instalar APK (${info.tagName})")
+                                                isDownloading = false
+                                                dlResult.fold(
+                                                    onSuccess = { apkFile ->
+                                                        downloadedApkFile = apkFile
+                                                        AppUpdateManager.installApk(context, apkFile)
+                                                    },
+                                                    onFailure = { err ->
+                                                        errorMessage = "Error al descargar APK: ${err.localizedMessage}"
+                                                    }
+                                                )
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                                        modifier = Modifier.fillMaxWidth().testTag("download_apk_btn")
+                                    ) {
+                                        Icon(Icons.Default.Download, contentDescription = null)
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("🚀 Descargar e Instalar APK (${info.tagName})")
+                                    }
                                 }
                             }
                         }

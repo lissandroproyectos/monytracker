@@ -64,6 +64,7 @@ import com.example.data.model.Account
 import com.example.data.model.AccountType
 import com.example.data.model.CommitmentStatus
 import com.example.data.model.ExpenseCommitment
+import com.example.data.model.Frequency
 import com.example.data.model.PaymentMode
 import com.example.data.model.Transaction
 import com.example.data.model.TransactionType
@@ -774,7 +775,7 @@ fun TransactionRow(
     }
 }
 
-// Commitment Card with Projected Cuotas & Share Template action
+// Commitment Card with Projected Cuotas & Details
 @Composable
 fun CommitmentCard(
     commitment: ExpenseCommitment,
@@ -783,31 +784,37 @@ fun CommitmentCard(
     onShareAsTemplateClick: () -> Unit,
     onDeleteClick: () -> Unit,
     onEditClick: (() -> Unit)? = null,
+    displayCurrency: AppCurrency = AppCurrency.USD_BCV,
+    rates: ExchangeRates? = null,
     modifier: Modifier = Modifier
 ) {
     val isPaidOff = commitment.status == CommitmentStatus.PAID_OFF.name
-    val isInstallments = commitment.paymentMode == PaymentMode.INSTALLMENTS.name
-    val isPartial = commitment.paymentMode == PaymentMode.PARTIAL.name
-    val progress = commitment.progressPercentage
-    val commCurrency = AppCurrency.fromCode(commitment.currency)
-
+    val origCurrency = AppCurrency.fromCode(commitment.currency)
     val badgeColor = if (commitment.isFixedExpense) AccentAmber else EmeraldLight
-    val typeTitle = if (commitment.isFixedExpense) "Gasto Fijo Recurrente" else "Deuda / Compromiso Temporal"
+
+    val convertedTotal = rates?.convert(commitment.totalAmount, origCurrency, displayCurrency) ?: commitment.totalAmount
+    val freqLabel = Frequency.entries.find { it.name == commitment.frequency }?.displayName ?: commitment.frequency
+
+    val endDateStr = if (commitment.endDate != null) {
+        "Fin: " + java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()).format(commitment.endDate.toDate())
+    } else {
+        "Sin fecha fin definida"
+    }
 
     Card(
         modifier = modifier
             .fillMaxWidth()
             .testTag("commitment_card_${commitment.id}")
-            .clickable { onEditClick?.invoke() },
-        shape = RoundedCornerShape(20.dp),
+            .clickable { onViewInstallmentsClick() },
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = SlateCard)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp)
+                .padding(16.dp)
         ) {
-            // Header: Category, Type badge, Status, and Options
+            // Header: Category, Type badge, Status & Actions
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -840,7 +847,7 @@ fun CommitmentCard(
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
-                            text = if (isPaidOff) "SALDADO" else "PENDIENTE",
+                            text = if (isPaidOff) "SALDADO" else "ACTIVO",
                             style = MaterialTheme.typography.labelSmall,
                             color = if (isPaidOff) EmeraldLight else AccentAmber,
                             fontWeight = FontWeight.Bold,
@@ -878,6 +885,7 @@ fun CommitmentCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            // Title
             Text(
                 text = commitment.title,
                 style = MaterialTheme.typography.titleLarge,
@@ -885,117 +893,58 @@ fun CommitmentCard(
                 color = TextPrimaryDark
             )
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
+            // Amount & Currency Conversion
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
                     Text(
-                        text = "Saldo pendiente",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondaryDark
-                    )
-                    Text(
-                        text = formatCurrency(commitment.remainingAmount, commCurrency.symbol),
-                        style = MaterialTheme.typography.headlineMedium,
+                        text = formatCurrency(convertedTotal, displayCurrency.symbol),
+                        style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
-                        color = if (isPaidOff) EmeraldLight else AccentAmber
+                        color = EmeraldLight
                     )
+                    if (displayCurrency != origCurrency) {
+                        Text(
+                            text = "Original: ${formatCurrency(commitment.totalAmount, origCurrency.symbol)} ${origCurrency.code}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondaryDark,
+                            fontSize = 10.sp
+                        )
+                    }
                 }
 
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = "Total original (${commCurrency.symbol})",
+                        text = freqLabel,
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondaryDark
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimaryDark
                     )
                     Text(
-                        text = formatCurrency(commitment.totalAmount, commCurrency.symbol),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = TextPrimaryDark
+                        text = "📅 $endDateStr",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondaryDark,
+                        fontSize = 11.sp
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp)),
-                color = if (isPaidOff) EmeraldLight else EmeraldPrimary,
-                trackColor = SlateCardLight,
-                strokeCap = StrokeCap.Round
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+            // Action row: Ver Detalles / Cuotas
+            OutlinedButton(
+                onClick = onViewInstallmentsClick,
+                modifier = Modifier.fillMaxWidth().testTag("view_installments_${commitment.id}"),
+                shape = RoundedCornerShape(10.dp)
             ) {
-                if (isInstallments) {
-                    Text(
-                        text = "Cuotas pagadas: ${commitment.paidInstallments}/${commitment.totalInstallments} (${formatCurrency(commitment.installmentAmount, commCurrency.symbol)} c/u)",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondaryDark
-                    )
-                } else {
-                    Text(
-                        text = "Modalidad: ${PaymentMode.entries.find { it.name == commitment.paymentMode }?.displayName ?: commitment.paymentMode}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondaryDark
-                    )
-                }
-
-                Text(
-                    text = "${(progress * 100).toInt()}%",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = EmeraldLight
-                )
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Action row: Pagar, Ver Cuotas Proyectadas, Compartir como plantilla
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (isInstallments) {
-                    OutlinedButton(
-                        onClick = onViewInstallmentsClick,
-                        modifier = Modifier.weight(1f).testTag("view_installments_${commitment.id}"),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(Icons.Default.FormatListNumbered, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Ver Cuotas", fontSize = 11.sp)
-                    }
-                }
-
-                if (!isPaidOff) {
-                    Button(
-                        onClick = onPayClick,
-                        modifier = Modifier.weight(1.3f).testTag("pay_commitment_${commitment.id}"),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
-                    ) {
-                        Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (isInstallments) "Abonar Cuota" else "Abonar",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 12.sp
-                        )
-                    }
-                }
+                Icon(Icons.Default.FormatListNumbered, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Ver Detalles y Cuotas Planificadas", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }

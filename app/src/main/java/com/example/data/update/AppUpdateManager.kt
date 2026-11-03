@@ -24,7 +24,7 @@ data class GitHubReleaseInfo(
 
 object AppUpdateManager {
 
-    const val CURRENT_VERSION_NAME = "1.0.0"
+    const val CURRENT_VERSION_NAME = "1.2"
     const val DEFAULT_GITHUB_REPO = "lissandroproyectos/monytracker"
 
     suspend fun checkLatestRelease(githubRepo: String = DEFAULT_GITHUB_REPO): Result<GitHubReleaseInfo?> = withContext(Dispatchers.IO) {
