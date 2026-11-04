@@ -5,6 +5,7 @@ import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.IgnoreExtraProperties
+import com.google.firebase.firestore.PropertyName
 import com.google.firebase.firestore.ServerTimestamp
 
 enum class TransactionType(val displayName: String) {
@@ -23,7 +24,8 @@ data class Transaction(
     val amount: Double = 0.0,
     val currency: String = AppCurrency.USD_BCV.name,
     val amountInBs: Double = 0.0,
-    val isFixedExpense: Boolean = false,
+    @get:PropertyName("isFixedExpense") @set:PropertyName("isFixedExpense")
+    var isFixedExpense: Boolean = false,
     val category: String = "General",
     val description: String = "",
     val date: Timestamp = Timestamp.now(),
@@ -42,6 +44,7 @@ data class Transaction(
             "currency" to currency,
             "amountInBs" to amountInBs,
             "isFixedExpense" to isFixedExpense,
+            "fixedExpense" to isFixedExpense,
             "category" to category,
             "description" to description,
             "date" to date,

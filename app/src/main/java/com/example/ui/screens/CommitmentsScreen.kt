@@ -294,8 +294,7 @@ fun CommitmentsScreen(
                         onPayClick = { commitmentToPay = comm },
                         onViewInstallmentsClick = { onViewInstallments(comm) },
                         onShareAsTemplateClick = { commitmentToShare = comm },
-                        onEditClick = { commitmentToEdit = comm },
-                        onDeleteClick = { commitmentToDelete = comm }
+                        onDeleteClick = {}
                     )
                 }
             }

@@ -118,6 +118,8 @@ fun MainApp(
     var prefilledTemplateForCommitment by remember { mutableStateOf<MarketTemplate?>(null) }
     var commitmentToPay by remember { mutableStateOf<ExpenseCommitment?>(null) }
     var commitmentToInspectInstallments by remember { mutableStateOf<ExpenseCommitment?>(null) }
+    var commitmentToEditInDialog by remember { mutableStateOf<ExpenseCommitment?>(null) }
+    var commitmentToDeleteInDialog by remember { mutableStateOf<ExpenseCommitment?>(null) }
 
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val health by viewModel.financialHealth.collectAsStateWithLifecycle()
@@ -388,7 +390,53 @@ fun MainApp(
             onDismiss = { commitmentToInspectInstallments = null },
             onToggleInstallment = { number, isPaid, account ->
                 viewModel.toggleInstallment(comm, number, isPaid, account)
+            },
+            onEdit = { commitmentToEditInDialog = comm },
+            onDelete = { commitmentToDeleteInDialog = comm }
+        )
+    }
+
+    commitmentToEditInDialog?.let { comm ->
+        AddCommitmentDialog(
+            accounts = accounts,
+            templates = marketplaceTemplates,
+            customCategories = settings.customExpenseCategories,
+            commitmentToEdit = comm,
+            onDismiss = { commitmentToEditInDialog = null },
+            onSave = { updated ->
+                viewModel.updateCommitment(updated)
+                commitmentToEditInDialog = null
+            },
+            onCreateCategory = { name, isInc -> viewModel.addCustomCategory(name, isInc) },
+            onDelete = {
+                viewModel.deleteCommitment(comm.id)
+                commitmentToEditInDialog = null
             }
+        )
+    }
+
+    commitmentToDeleteInDialog?.let { comm ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { commitmentToDeleteInDialog = null },
+            title = { androidx.compose.material3.Text("¿Eliminar compromiso?", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
+            text = { androidx.compose.material3.Text("Se eliminará '${comm.title}' y su cronograma de cuotas.") },
+            confirmButton = {
+                androidx.compose.material3.Button(
+                    onClick = {
+                        viewModel.deleteCommitment(comm.id)
+                        commitmentToDeleteInDialog = null
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = com.example.ui.theme.AccentRed)
+                ) {
+                    androidx.compose.material3.Text("Eliminar", color = androidx.compose.ui.graphics.Color.White)
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { commitmentToDeleteInDialog = null }) {
+                    androidx.compose.material3.Text("Cancelar")
+                }
+            },
+            containerColor = com.example.ui.theme.SlateCard
         )
     }
 

@@ -26,6 +26,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CurrencyExchange
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.Share
@@ -275,7 +277,9 @@ fun InstallmentsScheduleDialog(
     rates: ExchangeRates,
     displayCurrency: AppCurrency,
     onDismiss: () -> Unit,
-    onToggleInstallment: (Long, Boolean, Account?) -> Unit
+    onToggleInstallment: (Long, Boolean, Account?) -> Unit,
+    onEdit: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null
 ) {
     val installments = commitment.getProjectedInstallments()
     val commCurrency = AppCurrency.fromCode(commitment.currency)
@@ -305,9 +309,9 @@ fun InstallmentsScheduleDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Cronograma de Cuotas",
+                            text = "Detalles y Cronograma",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimaryDark
@@ -320,6 +324,43 @@ fun InstallmentsScheduleDialog(
                     }
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = TextSecondaryDark)
+                    }
+                }
+
+                // Action buttons: Edit and Delete inside modal
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (onEdit != null) {
+                        OutlinedButton(
+                            onClick = {
+                                onDismiss()
+                                onEdit()
+                            },
+                            modifier = Modifier.weight(1f).testTag("dialog_edit_commitment_${commitment.id}"),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Editar")
+                        }
+                    }
+
+                    if (onDelete != null) {
+                        Button(
+                            onClick = {
+                                onDismiss()
+                                onDelete()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = AccentRed),
+                            modifier = Modifier.weight(1f).testTag("dialog_delete_commitment_${commitment.id}"),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Eliminar")
+                        }
                     }
                 }
 

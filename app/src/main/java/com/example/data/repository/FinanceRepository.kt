@@ -120,7 +120,15 @@ class FinanceRepository(
             .snapshots()
             .map { snapshot ->
                 snapshot.documents.mapNotNull { doc ->
-                    doc.toObject(Account::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                    val acc = doc.toObject(Account::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                    if (acc != null) {
+                        val rawSavings = doc.getBoolean("isSavings") ?: doc.getBoolean("savings")
+                        val rawPeriodic = doc.getBoolean("hasPeriodicIncome") ?: doc.getBoolean("periodicIncome")
+                        acc.copy(
+                            isSavings = rawSavings ?: acc.isSavings,
+                            hasPeriodicIncome = rawPeriodic ?: acc.hasPeriodicIncome
+                        )
+                    } else null
                 }
             }
     }
@@ -168,7 +176,11 @@ class FinanceRepository(
             .snapshots()
             .map { snapshot ->
                 snapshot.documents.mapNotNull { doc ->
-                    doc.toObject(Transaction::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                    val tx = doc.toObject(Transaction::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                    if (tx != null) {
+                        val rawFixed = doc.getBoolean("isFixedExpense") ?: doc.getBoolean("fixedExpense")
+                        if (rawFixed != null) tx.copy(isFixedExpense = rawFixed) else tx
+                    } else null
                 }.sortedByDescending { it.date.seconds }
             }
     }
@@ -281,7 +293,15 @@ class FinanceRepository(
             .snapshots()
             .map { snapshot ->
                 snapshot.documents.mapNotNull { doc ->
-                    doc.toObject(ExpenseCommitment::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                    val com = doc.toObject(ExpenseCommitment::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                    if (com != null) {
+                        val rawFixed = doc.getBoolean("isFixedExpense") ?: doc.getBoolean("fixedExpense")
+                        val rawAnnual = doc.getBoolean("isAnnualInterest") ?: doc.getBoolean("annualInterest")
+                        com.copy(
+                            isFixedExpense = rawFixed ?: com.isFixedExpense,
+                            isAnnualInterest = rawAnnual ?: com.isAnnualInterest
+                        )
+                    } else null
                 }.sortedByDescending { it.createdAt?.seconds ?: 0L }
             }
     }

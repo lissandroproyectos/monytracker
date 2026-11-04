@@ -5,6 +5,7 @@ import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.IgnoreExtraProperties
+import com.google.firebase.firestore.PropertyName
 import com.google.firebase.firestore.ServerTimestamp
 import java.util.Calendar
 import java.util.Date
@@ -85,14 +86,16 @@ data class ExpenseCommitment(
     val remainingAmount: Double = 0.0,
     val paymentMode: String = PaymentMode.INSTALLMENTS.name,
     val category: String = "General",
-    val isFixedExpense: Boolean = false, // true = Gasto Fijo recurrente, false = Deuda temporal / cuotas
+    @get:PropertyName("isFixedExpense") @set:PropertyName("isFixedExpense")
+    var isFixedExpense: Boolean = false, // true = Gasto Fijo recurrente, false = Deuda temporal / cuotas
     val currency: String = AppCurrency.USD_BCV.name,
     val totalInstallments: Long = 1L,
     val paidInstallments: Long = 0L,
     val installmentAmount: Double = 0.0,
     val downPayment: Double = 0.0,
     val interestRate: Double = 0.0,
-    val isAnnualInterest: Boolean = false,
+    @get:PropertyName("isAnnualInterest") @set:PropertyName("isAnnualInterest")
+    var isAnnualInterest: Boolean = false,
     val customDays: Int = 30,
     val frequency: String = Frequency.MONTHLY.name,
     val startDate: Timestamp = Timestamp.now(),
@@ -195,6 +198,7 @@ data class ExpenseCommitment(
             "paymentMode" to paymentMode,
             "category" to category,
             "isFixedExpense" to isFixedExpense,
+            "fixedExpense" to isFixedExpense,
             "currency" to currency,
             "totalInstallments" to totalInstallments,
             "paidInstallments" to paidInstallments,
@@ -202,6 +206,7 @@ data class ExpenseCommitment(
             "downPayment" to downPayment,
             "interestRate" to interestRate,
             "isAnnualInterest" to isAnnualInterest,
+            "annualInterest" to isAnnualInterest,
             "customDays" to customDays,
             "frequency" to frequency,
             "startDate" to startDate,

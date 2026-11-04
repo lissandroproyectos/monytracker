@@ -854,32 +854,6 @@ fun CommitmentCard(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
-
-                    if (onEditClick != null) {
-                        IconButton(
-                            onClick = onEditClick,
-                            modifier = Modifier.size(32.dp).testTag("edit_commitment_${commitment.id}")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = "Editar",
-                                tint = TextSecondaryDark.copy(alpha = 0.8f),
-                                modifier = Modifier.size(17.dp)
-                            )
-                        }
-                    }
-
-                    IconButton(
-                        onClick = onDeleteClick,
-                        modifier = Modifier.size(32.dp).testTag("delete_commitment_${commitment.id}")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Eliminar",
-                            tint = AccentRed.copy(alpha = 0.8f),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
                 }
             }
 
