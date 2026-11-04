@@ -102,7 +102,10 @@ fun CommitmentsScreen(
         .sumOf { rates.convert(it.remainingAmount, AppCurrency.fromCode(it.currency), health.displayCurrency) }
 
     val totalFixed = commitments.filter { it.isFixedExpense && it.status == CommitmentStatus.ACTIVE.name }
-        .sumOf { rates.convert(it.remainingAmount, AppCurrency.fromCode(it.currency), health.displayCurrency) }
+        .sumOf { c ->
+            val recurringAmt = if (c.installmentAmount > 0) c.installmentAmount else (if (c.totalInstallments > 0) c.totalAmount / c.totalInstallments else c.totalAmount)
+            rates.convert(recurringAmt, AppCurrency.fromCode(c.currency), health.displayCurrency)
+        }
 
     Scaffold(
         modifier = modifier.fillMaxSize().testTag("commitments_screen"),

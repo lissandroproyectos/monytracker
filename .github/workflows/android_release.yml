@@ -41,9 +41,12 @@ jobs:
         run: |
           touch .env
           python3 restore_keystore.py
-          # Ensure google-services.json has authentic OAuth clients and API key for Google Sign-In and Firestore
-          if [ ! -f app/google-services.json ] || grep -q '"dummy"' app/google-services.json; then
-            python3 -c "import json; data = {'project_info':{'project_number':'166010243644','project_id':'caribbou-net-storage-manager','storage_bucket':'caribbou-net-storage-manager.firebasestorage.app'},'client':[{'client_info':{'mobilesdk_app_id':'1:166010243644:android:3a6b97d46cc88ec4a15139','android_client_info':{'package_name':'com.aistudio.finanzas.kpwrzq'}},'oauth_client':[{'client_id':'166010243644-7rq2p2q4o0qjh2ldlhp985nmo9fncd6i.apps.googleusercontent.com','client_type':1,'android_info':{'package_name':'com.aistudio.finanzas.kpwrzq','certificate_hash':'b48ca455f44b94d2d80062a74e509cfabbd31f18'}},{'client_id':'166010243644-q8chp7cgoo1ltng0fi7u3h8gi9jm8hhr.apps.googleusercontent.com','client_type':3}],'api_key':[{'current_key':'AIzaSyAn5JBiam28MdxM5B9b6vK-D4vzu6Gs0HU'}],'services':{'appinvite_service':{'other_platform_oauth_client':[{'client_id':'166010243644-q8chp7cgoo1ltng0fi7u3h8gi9jm8hhr.apps.googleusercontent.com','client_type':3}]}}}],'configuration_version':'1'}; json.dump(data, open('app/google-services.json', 'w'), indent=2)"
+          # Use google-services.json from repository secret if provided, or copy existing app/google-services.json
+          if [ -n "${{ secrets.GOOGLE_SERVICES_JSON }}" ]; then
+            echo "${{ secrets.GOOGLE_SERVICES_JSON }}" > app/google-services.json
+          fi
+          if [ ! -f app/google-services.json ]; then
+            echo "Warning: app/google-services.json not found."
           fi
 
       - name: Build Debug APK

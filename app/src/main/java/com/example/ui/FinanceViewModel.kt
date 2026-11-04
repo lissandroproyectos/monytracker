@@ -130,7 +130,8 @@ class FinanceViewModel(
 
         // Separate fixed expenses vs temporary debts
         val fixedExpenses = activeComms.filter { it.isFixedExpense }.sumOf { c ->
-            rates.convert(c.remainingAmount, AppCurrency.fromCode(c.currency), dispCurr)
+            val recurringAmt = if (c.installmentAmount > 0) c.installmentAmount else (if (c.totalInstallments > 0) c.totalAmount / c.totalInstallments else c.totalAmount)
+            rates.convert(recurringAmt, AppCurrency.fromCode(c.currency), dispCurr)
         }
 
         val temporaryDebts = activeComms.filter { !it.isFixedExpense }.sumOf { c ->
