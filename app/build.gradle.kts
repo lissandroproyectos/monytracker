@@ -17,8 +17,8 @@ android {
     applicationId = "com.aistudio.finanzas.kpwrzq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 3
-    versionName = "1.2"
+    versionCode = 18
+    versionName = "1.18"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

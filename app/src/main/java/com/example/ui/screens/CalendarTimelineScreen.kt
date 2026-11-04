@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.app.DatePickerDialog
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -779,9 +780,10 @@ fun PaymentPlanProjectionView(
                     set(Calendar.YEAR, year)
                     set(Calendar.MONTH, month)
                     set(Calendar.DAY_OF_MONTH, dayOfMonth)
-                    set(Calendar.HOUR_OF_DAY, 12)
+                    set(Calendar.HOUR_OF_DAY, 0)
                     set(Calendar.MINUTE, 0)
                     set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
                 }.time
                 onSelected(sel)
             },
@@ -857,6 +859,37 @@ fun PaymentPlanProjectionView(
 
     val finalAvailableBalance = simulatedTimeline.lastOrNull()?.availableBalanceAfter ?: initialAvailable
     val totalProjectedSavingsSweeps = simulatedTimeline.filter { it.isSavingsSweep }.sumOf { it.amount }
+
+    // -----------------------------------------------------------------------------------------
+    // CÁLCULO DE MONTO PARA INICIO DEL PLAN (Desde inicio de plan hasta el 1er ingreso)
+    // -----------------------------------------------------------------------------------------
+    val firstIncomeEvent = remember(rawEvents, startDate) {
+        rawEvents.firstOrNull { it.isIncome && !it.dueDate.before(startDate) }
+    }
+
+    val preIncomeEvents = remember(rawEvents, startDate, firstIncomeEvent) {
+        if (firstIncomeEvent != null) {
+            rawEvents.filter { !it.isIncome && !it.dueDate.before(startDate) && !it.dueDate.after(firstIncomeEvent.dueDate) }
+        } else {
+            rawEvents.filter { !it.isIncome && !it.dueDate.before(startDate) }
+        }
+    }
+
+    val pendingPreIncomeExpenses = remember(preIncomeEvents, rates, displayCurrency) {
+        preIncomeEvents.filter { !it.isPaid }.sumOf { rates.convert(it.amount, it.currency, displayCurrency) }
+    }
+
+    val totalPreIncomeExpenses = remember(preIncomeEvents, rates, displayCurrency) {
+        preIncomeEvents.sumOf { rates.convert(it.amount, it.currency, displayCurrency) }
+    }
+
+    val amountNeededForZero = pendingPreIncomeExpenses
+    val amountNeededForCushion = pendingPreIncomeExpenses + cushionAmount
+    val deficitForZero = (amountNeededForZero - initialAvailable).coerceAtLeast(0.0)
+    val deficitForCushion = (amountNeededForCushion - initialAvailable).coerceAtLeast(0.0)
+    val balanceAtFirstIncome = initialAvailable - pendingPreIncomeExpenses
+
+    var showPreIncomeDetails by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1008,6 +1041,29 @@ fun PaymentPlanProjectionView(
                     }
                 }
             }
+        }
+
+        // Card: Cálculo de Monto para Inicio del Plan (Hasta el 1er Ingreso)
+        item {
+            PlanInitialCapitalCard(
+                startDate = startDate,
+                firstIncomeEvent = firstIncomeEvent,
+                preIncomeEvents = preIncomeEvents,
+                pendingPreIncomeExpenses = pendingPreIncomeExpenses,
+                totalPreIncomeExpenses = totalPreIncomeExpenses,
+                amountNeededForZero = amountNeededForZero,
+                amountNeededForCushion = amountNeededForCushion,
+                initialAvailable = initialAvailable,
+                cushionAmount = cushionAmount,
+                deficitForZero = deficitForZero,
+                deficitForCushion = deficitForCushion,
+                balanceAtFirstIncome = balanceAtFirstIncome,
+                displayCurrency = displayCurrency,
+                rates = rates,
+                dateFormat = dateFormat,
+                showDetails = showPreIncomeDetails,
+                onToggleDetails = { showPreIncomeDetails = !showPreIncomeDetails }
+            )
         }
 
         // Available Money & Safety Cushion Control Card
@@ -1809,5 +1865,410 @@ private fun toggleEventReady(
                 date = Timestamp(event.dueDate)
             )
         )
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+// CARD: CÁLCULO DE MONTO PARA INICIO DEL PLAN (Hasta el 1er Ingreso)
+// ------------------------------------------------------------------------------------------------
+@Composable
+fun PlanInitialCapitalCard(
+    startDate: Date,
+    firstIncomeEvent: PlannedEvent?,
+    preIncomeEvents: List<PlannedEvent>,
+    pendingPreIncomeExpenses: Double,
+    totalPreIncomeExpenses: Double,
+    amountNeededForZero: Double,
+    amountNeededForCushion: Double,
+    initialAvailable: Double,
+    cushionAmount: Double,
+    deficitForZero: Double,
+    deficitForCushion: Double,
+    balanceAtFirstIncome: Double,
+    displayCurrency: AppCurrency,
+    rates: ExchangeRates,
+    dateFormat: SimpleDateFormat,
+    showDetails: Boolean,
+    onToggleDetails: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val daysToFirstIncome = remember(startDate, firstIncomeEvent) {
+        if (firstIncomeEvent != null) {
+            val diff = firstIncomeEvent.dueDate.time - startDate.time
+            (diff / (1000 * 60 * 60 * 24)).coerceAtLeast(0)
+        } else 0L
+    }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("plan_initial_capital_card"),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = SlateCard)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Header Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Surface(
+                        shape = CircleShape,
+                        color = EmeraldDark.copy(alpha = 0.4f),
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.AccountBalance,
+                                contentDescription = null,
+                                tint = EmeraldLight,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Capital para Inicio del Plan",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimaryDark
+                        )
+                        Text(
+                            text = if (firstIncomeEvent != null) {
+                                "Del ${dateFormat.format(startDate)} al 1er cobro (${dateFormat.format(firstIncomeEvent.dueDate)})"
+                            } else {
+                                "Desde ${dateFormat.format(startDate)} (sin ingresos periódicos en rango)"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondaryDark,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+
+                if (firstIncomeEvent != null) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = EmeraldPrimary.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = if (daysToFirstIncome == 0L) "¡Cobro Hoy!" else "En $daysToFirstIncome días",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = EmeraldLight,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+
+            Text(
+                text = "Dinero necesario para que, cuando llegue el primer ingreso del plan, tu saldo esté en 0 (mínimo) o conserve el colchón (óptimo):",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondaryDark,
+                fontSize = 12.sp
+            )
+
+            // Two Core Metric Cards
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Metric 1: Monto para Saldo en 0
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = SlateCardLight,
+                    border = BorderStroke(1.dp, SlateBackground),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                shape = CircleShape,
+                                color = AccentAmber.copy(alpha = 0.2f),
+                                modifier = Modifier.size(8.dp)
+                            ) {}
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "Para Saldo en 0",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondaryDark,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = formatCurrency(amountNeededForZero, displayCurrency.symbol),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = AccentAmber
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "Mínimo para cubrir egresos sin caer en negativo",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondaryDark,
+                            fontSize = 10.sp,
+                            lineHeight = 13.sp
+                        )
+                    }
+                }
+
+                // Metric 2: Monto para Conservar Colchón
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = SlateCardLight,
+                    border = BorderStroke(1.dp, EmeraldLight.copy(alpha = 0.3f)),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                shape = CircleShape,
+                                color = EmeraldLight,
+                                modifier = Modifier.size(8.dp)
+                            ) {}
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "Con Colchón",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = EmeraldLight,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = formatCurrency(amountNeededForCushion, displayCurrency.symbol),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = EmeraldLight
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "Egresos + Colchón (${formatCurrency(cushionAmount, displayCurrency.symbol)}) protegido",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondaryDark,
+                            fontSize = 10.sp,
+                            lineHeight = 13.sp
+                        )
+                    }
+                }
+            }
+
+            // Status Banner based on current available funds
+            val statusColor = when {
+                initialAvailable >= amountNeededForCushion -> EmeraldLight
+                initialAvailable >= amountNeededForZero -> AccentAmber
+                else -> AccentRed
+            }
+
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = when {
+                    initialAvailable >= amountNeededForCushion -> EmeraldDark.copy(alpha = 0.35f)
+                    initialAvailable >= amountNeededForZero -> AccentAmber.copy(alpha = 0.15f)
+                    else -> AccentRed.copy(alpha = 0.18f)
+                },
+                border = BorderStroke(1.dp, statusColor.copy(alpha = 0.4f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = when {
+                            initialAvailable >= amountNeededForCushion -> Icons.Default.CheckCircle
+                            initialAvailable >= amountNeededForZero -> Icons.Default.Info
+                            else -> Icons.Default.Warning
+                        },
+                        contentDescription = null,
+                        tint = statusColor,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = when {
+                                initialAvailable >= amountNeededForCushion -> "¡Fondos iniciales cubiertos con colchón!"
+                                initialAvailable >= amountNeededForZero -> "Egresos cubiertos (Colchón parcial)"
+                                else -> "Déficit de inicio para cubrir el lapso"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimaryDark
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = when {
+                                initialAvailable >= amountNeededForCushion ->
+                                    "Dispones de ${formatCurrency(initialAvailable, displayCurrency.symbol)}. Al llegar el 1er ingreso te quedarán ${formatCurrency(balanceAtFirstIncome, displayCurrency.symbol)} (tu colchón de ${formatCurrency(cushionAmount, displayCurrency.symbol)} queda 100% resguardado)."
+                                initialAvailable >= amountNeededForZero ->
+                                    "Dispones de ${formatCurrency(initialAvailable, displayCurrency.symbol)}. Cubres los egresos para llegar en ${formatCurrency(balanceAtFirstIncome, displayCurrency.symbol)}, pero faltan ${formatCurrency(deficitForCushion, displayCurrency.symbol)} para mantener completo tu colchón de seguridad (${formatCurrency(cushionAmount, displayCurrency.symbol)})."
+                                else ->
+                                    "Dispones de ${formatCurrency(initialAvailable, displayCurrency.symbol)} y necesitas ${formatCurrency(amountNeededForZero, displayCurrency.symbol)}. Faltan ${formatCurrency(deficitForZero, displayCurrency.symbol)} para no quedar en negativo antes del 1er ingreso."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondaryDark,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+
+            // Info row for the first income event
+            if (firstIncomeEvent != null) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = SlateBackground,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Paid, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Column {
+                                Text(
+                                    text = "1er Ingreso: ${firstIncomeEvent.title}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimaryDark,
+                                    fontSize = 11.sp
+                                )
+                                Text(
+                                    text = dateFormat.format(firstIncomeEvent.dueDate),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondaryDark,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                        Text(
+                            text = "+${formatCurrency(rates.convert(firstIncomeEvent.amount, firstIncomeEvent.currency, displayCurrency), displayCurrency.symbol)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = EmeraldLight
+                        )
+                    }
+                }
+            }
+
+            // Toggle breakdown button
+            if (preIncomeEvents.isNotEmpty()) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = SlateCardLight,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onToggleDetails() }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.DateRange, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "${preIncomeEvents.size} compromiso(s) previos (${formatCurrency(pendingPreIncomeExpenses, displayCurrency.symbol)} pendientes)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextPrimaryDark,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Text(
+                            text = if (showDetails) "Ocultar ▲" else "Ver ▼",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = EmeraldLight,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+
+                if (showDetails) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        preIncomeEvents.forEach { event ->
+                            val eventAmt = rates.convert(event.amount, event.currency, displayCurrency)
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = SlateBackground,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = event.title,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextPrimaryDark,
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 11.sp
+                                        )
+                                        Text(
+                                            text = "${dateFormat.format(event.dueDate)} · ${event.installmentInfo ?: if (event.isFixed) "Gasto Fijo" else "Compromiso"}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = TextSecondaryDark,
+                                            fontSize = 10.sp
+                                        )
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "-${formatCurrency(eventAmt, displayCurrency.symbol)}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (event.isPaid) TextSecondaryDark else AccentRed,
+                                            fontSize = 11.sp
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = if (event.isPaid) EmeraldDark.copy(alpha = 0.3f) else AccentAmber.copy(alpha = 0.2f)
+                                        ) {
+                                            Text(
+                                                text = if (event.isPaid) "Pagado" else "Pendiente",
+                                                color = if (event.isPaid) EmeraldLight else AccentAmber,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontSize = 9.sp,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

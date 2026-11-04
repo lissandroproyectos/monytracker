@@ -192,9 +192,10 @@ fun AppUpdateDialog(
                 }
 
                 releaseInfo?.let { info ->
-                    val cleanTag = info.tagName.removePrefix("v").removePrefix("V").trim()
-                    val currentVer = AppUpdateManager.CURRENT_VERSION_NAME.trim()
-                    val isUpToDate = cleanTag == currentVer || cleanTag == "1.2.0" || cleanTag <= "1.2"
+                    val isUpToDate = AppUpdateManager.isVersionUpToDate(
+                        currentVersion = AppUpdateManager.CURRENT_VERSION_NAME,
+                        latestTag = info.tagName
+                    )
 
                     if (isUpToDate) {
                         Card(

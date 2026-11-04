@@ -24,8 +24,32 @@ data class GitHubReleaseInfo(
 
 object AppUpdateManager {
 
-    const val CURRENT_VERSION_NAME = "1.2"
+    const val CURRENT_VERSION_NAME = "1.18"
     const val DEFAULT_GITHUB_REPO = "lissandroproyectos/monytracker"
+
+    fun isVersionUpToDate(currentVersion: String = CURRENT_VERSION_NAME, latestTag: String): Boolean {
+        val cleanTag = latestTag.removePrefix("v").removePrefix("V").trim()
+        val cleanCur = currentVersion.removePrefix("v").removePrefix("V").trim()
+        if (cleanTag.equals(cleanCur, ignoreCase = true)) return true
+
+        val pTag = cleanTag.split(".").mapNotNull { seg ->
+            val digits = seg.takeWhile { it.isDigit() }
+            if (digits.isNotBlank()) digits.toIntOrNull() else null
+        }
+        val pCur = cleanCur.split(".").mapNotNull { seg ->
+            val digits = seg.takeWhile { it.isDigit() }
+            if (digits.isNotBlank()) digits.toIntOrNull() else null
+        }
+
+        val maxLen = maxOf(pTag.size, pCur.size)
+        for (i in 0 until maxLen) {
+            val curNum = pCur.getOrElse(i) { 0 }
+            val tagNum = pTag.getOrElse(i) { 0 }
+            if (curNum > tagNum) return true
+            if (curNum < tagNum) return false
+        }
+        return true
+    }
 
     suspend fun checkLatestRelease(githubRepo: String = DEFAULT_GITHUB_REPO): Result<GitHubReleaseInfo?> = withContext(Dispatchers.IO) {
         try {
