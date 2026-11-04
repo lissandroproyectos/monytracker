@@ -24,7 +24,8 @@ data class GitHubReleaseInfo(
 
 object AppUpdateManager {
 
-    const val CURRENT_VERSION_NAME = "1.18"
+    val CURRENT_VERSION_NAME: String
+        get() = com.example.BuildConfig.VERSION_NAME
     const val DEFAULT_GITHUB_REPO = "lissandroproyectos/monytracker"
 
     fun isVersionUpToDate(currentVersion: String = CURRENT_VERSION_NAME, latestTag: String): Boolean {

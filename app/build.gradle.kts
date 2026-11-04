@@ -17,8 +17,11 @@ android {
     applicationId = "com.aistudio.finanzas.kpwrzq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 18
-    versionName = "1.18"
+    val runNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 18
+    val appVersionName = System.getenv("APP_VERSION_NAME") ?: if (System.getenv("GITHUB_RUN_NUMBER") != null) "1.$runNumber" else "1.18"
+
+    versionCode = runNumber
+    versionName = appVersionName
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
