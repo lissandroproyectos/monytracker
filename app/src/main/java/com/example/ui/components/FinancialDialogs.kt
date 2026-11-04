@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -958,6 +959,11 @@ class AddCommitmentState(
         else PaymentMode.INSTALLMENTS
     )
     var installmentsCountText by mutableStateOf((commitmentToEdit?.totalInstallments ?: 3L).toString())
+    var hasInstallments by mutableStateOf(
+        if (commitmentToEdit != null) {
+            commitmentToEdit.totalInstallments > 1L || commitmentToEdit.paymentMode == PaymentMode.INSTALLMENTS.name
+        } else true
+    )
     var applyInterest by mutableStateOf((commitmentToEdit?.interestRate ?: prefilledTemplate?.interestRate ?: 0.0) > 0.0)
     var isAnnualInterest by mutableStateOf(commitmentToEdit?.isAnnualInterest ?: prefilledTemplate?.isAnnualInterest ?: false)
     var interestRateText by mutableStateOf((commitmentToEdit?.interestRate ?: prefilledTemplate?.interestRate ?: 0.0).let { if (it > 0) it.toString() else "5.0" })
@@ -1005,7 +1011,7 @@ class AddCommitmentState(
     val downPayment: Double get() = if (hasDownPayment) (downPaymentText.toDoubleOrNull() ?: 0.0) else 0.0
     val financedBase: Double get() = (totalAmount - downPayment).coerceAtLeast(0.0)
     val rawInterestRate: Double get() = if (applyInterest) (interestRateText.toDoubleOrNull() ?: 0.0) else 0.0
-    val totalInstallments: Long get() = (installmentsCountText.toLongOrNull() ?: 1L).coerceAtLeast(1L)
+    val totalInstallments: Long get() = if (hasInstallments) (installmentsCountText.toLongOrNull() ?: 1L).coerceAtLeast(1L) else 1L
     val alreadyPaidCount: Long get() = (alreadyPaidCountText.toLongOrNull() ?: 0L).coerceIn(0L, totalInstallments)
     val customDays: Int get() = customDaysText.toIntOrNull()?.coerceAtLeast(1) ?: 30
 
@@ -1093,66 +1099,74 @@ class AddCommitmentState(
     }
 
     fun computeActiveFixedSchedule(): List<ProjectedInstallment> {
-        val fixedCyclesCount = (fixedCyclesCountText.toIntOrNull() ?: 6).coerceIn(1, 48)
-        return if (customFixedInstallments.isNotEmpty() && customFixedInstallments.size == fixedCyclesCount) {
-            customFixedInstallments
-        } else {
-            val list = mutableListOf<ProjectedInstallment>()
-            val startCal = Calendar.getInstance().apply { time = fixedExpenseDueDate }
-            val startDayOfMonth = startCal.get(Calendar.DAY_OF_MONTH)
-            for (i in 1..fixedCyclesCount) {
-                val dueCal = startCal.clone() as Calendar
-                when (frequency) {
-                    Frequency.WEEKLY -> dueCal.add(Calendar.WEEK_OF_YEAR, i - 1)
-                    Frequency.BIWEEKLY -> dueCal.add(Calendar.DAY_OF_YEAR, (i - 1) * 15)
-                    Frequency.MONTHLY -> {
-                        dueCal.add(Calendar.MONTH, i - 1)
-                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                    }
-                    Frequency.BIMONTHLY -> {
-                        dueCal.add(Calendar.MONTH, (i - 1) * 2)
-                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                    }
-                    Frequency.QUARTERLY -> {
-                        dueCal.add(Calendar.MONTH, (i - 1) * 3)
-                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                    }
-                    Frequency.FOUR_MONTHLY -> {
-                        dueCal.add(Calendar.MONTH, (i - 1) * 4)
-                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                    }
-                    Frequency.SEMIANNUAL -> {
-                        dueCal.add(Calendar.MONTH, (i - 1) * 6)
-                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                    }
-                    Frequency.ANNUAL -> {
-                        dueCal.add(Calendar.YEAR, i - 1)
-                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                    }
-                    Frequency.CUSTOM -> dueCal.add(Calendar.DAY_OF_YEAR, (i - 1) * customDays)
+        val list = mutableListOf<ProjectedInstallment>()
+        val startCal = Calendar.getInstance().apply { time = fixedExpenseDueDate }
+        val startDayOfMonth = startCal.get(Calendar.DAY_OF_MONTH)
+        val maxLimit = if (hasEndDate) 120 else (fixedCyclesCountText.toIntOrNull() ?: 6).coerceIn(1, 48)
+
+        for (i in 1..maxLimit) {
+            val dueCal = startCal.clone() as Calendar
+            when (frequency) {
+                Frequency.WEEKLY -> dueCal.add(Calendar.WEEK_OF_YEAR, i - 1)
+                Frequency.BIWEEKLY -> dueCal.add(Calendar.DAY_OF_YEAR, (i - 1) * 15)
+                Frequency.MONTHLY -> {
+                    dueCal.add(Calendar.MONTH, i - 1)
+                    val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                    dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
                 }
-                if (hasEndDate && dueCal.time.after(fixedExpenseEndDate)) {
+                Frequency.BIMONTHLY -> {
+                    dueCal.add(Calendar.MONTH, (i - 1) * 2)
+                    val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                    dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
+                }
+                Frequency.QUARTERLY -> {
+                    dueCal.add(Calendar.MONTH, (i - 1) * 3)
+                    val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                    dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
+                }
+                Frequency.FOUR_MONTHLY -> {
+                    dueCal.add(Calendar.MONTH, (i - 1) * 4)
+                    val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                    dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
+                }
+                Frequency.SEMIANNUAL -> {
+                    dueCal.add(Calendar.MONTH, (i - 1) * 6)
+                    val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                    dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
+                }
+                Frequency.ANNUAL -> {
+                    dueCal.add(Calendar.YEAR, i - 1)
+                    val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                    dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
+                }
+                Frequency.CUSTOM -> dueCal.add(Calendar.DAY_OF_YEAR, (i - 1) * customDays)
+            }
+            if (hasEndDate) {
+                val endCalLimit = Calendar.getInstance().apply {
+                    time = fixedExpenseEndDate
+                    set(Calendar.HOUR_OF_DAY, 23)
+                    set(Calendar.MINUTE, 59)
+                    set(Calendar.SECOND, 59)
+                    set(Calendar.MILLISECOND, 999)
+                }
+                if (dueCal.after(endCalLimit)) {
                     break
                 }
-                list.add(
-                    ProjectedInstallment(
-                        number = i.toLong(),
-                        dueDate = Timestamp(dueCal.time),
-                        amount = totalAmount,
-                        isPaid = false,
-                        paidDate = null
-                    )
-                )
             }
-            list
+            val existingCustom = customFixedInstallments.getOrNull(i - 1)
+            list.add(
+                existingCustom ?: ProjectedInstallment(
+                    number = i.toLong(),
+                    dueDate = Timestamp(dueCal.time),
+                    amount = totalAmount,
+                    isPaid = false,
+                    paidDate = null
+                )
+            )
         }
+        return list
     }
+
 
     fun buildCommitmentToSave(): ExpenseCommitment? {
         if (title.isBlank() || totalAmount <= 0) return null
@@ -1178,7 +1192,16 @@ class AddCommitmentState(
                 customDays = customDays,
                 frequency = frequency.name,
                 startDate = effectiveFixedSchedule.firstOrNull()?.dueDate ?: Timestamp(fixedExpenseDueDate),
-                endDate = if (hasEndDate) Timestamp(fixedExpenseEndDate) else null,
+                endDate = if (hasEndDate) {
+                    val endCal = Calendar.getInstance().apply {
+                        time = fixedExpenseEndDate
+                        set(Calendar.HOUR_OF_DAY, 23)
+                        set(Calendar.MINUTE, 59)
+                        set(Calendar.SECOND, 59)
+                        set(Calendar.MILLISECOND, 999)
+                    }
+                    Timestamp(endCal.time)
+                } else null,
                 dueDate = effectiveFixedSchedule.firstOrNull { !it.isPaid }?.dueDate ?: effectiveFixedSchedule.firstOrNull()?.dueDate ?: Timestamp(fixedExpenseDueDate),
                 accountId = defaultAccountId.ifBlank { null },
                 status = if (effectiveFixedSchedule.isNotEmpty() && effectiveFixedSchedule.all { it.isPaid }) CommitmentStatus.PAID_OFF.name else CommitmentStatus.ACTIVE.name,
@@ -1196,7 +1219,7 @@ class AddCommitmentState(
                 title = title.trim(),
                 totalAmount = effectiveTotal,
                 remainingAmount = remaining,
-                paymentMode = PaymentMode.INSTALLMENTS.name,
+                paymentMode = if (hasInstallments) PaymentMode.INSTALLMENTS.name else PaymentMode.FULL.name,
                 category = selectedCategory,
                 isFixedExpense = false,
                 currency = selectedCurrency.name,
@@ -1864,35 +1887,86 @@ fun AddCommitmentDialog(
                 }
 
                 // Selector: Gasto Fijo vs Deuda Temporal
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = if (!state.isFixedExpense) EmeraldPrimary else SlateBackground,
-                        modifier = Modifier.weight(1f).clickable { state.isFixedExpense = false }
-                    ) {
-                        Text(
-                            text = "Deuda / Cuotas",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = if (!state.isFixedExpense) NavySurface else TextSecondaryDark,
-                            modifier = Modifier.padding(vertical = 10.dp),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                    }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Tipo de registro:", style = MaterialTheme.typography.labelSmall, color = TextSecondaryDark)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (!state.isFixedExpense) EmeraldPrimary else SlateBackground,
+                            border = if (!state.isFixedExpense) null else BorderStroke(1.dp, SlateCardLight),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    state.isFixedExpense = false
+                                    state.customInstallments = emptyList()
+                                }
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.CreditCard,
+                                        contentDescription = null,
+                                        tint = if (!state.isFixedExpense) NavySurface else EmeraldLight,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = "Deuda / Cuotas",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (!state.isFixedExpense) NavySurface else TextPrimaryDark
+                                    )
+                                }
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = "Monto total a financiar",
+                                    fontSize = 9.sp,
+                                    color = if (!state.isFixedExpense) NavySurface.copy(alpha = 0.8f) else TextSecondaryDark
+                                )
+                            }
+                        }
 
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = if (state.isFixedExpense) AccentAmber else SlateBackground,
-                        modifier = Modifier.weight(1f).clickable { state.isFixedExpense = true }
-                    ) {
-                        Text(
-                            text = "Gasto Fijo",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = if (state.isFixedExpense) NavySurface else TextSecondaryDark,
-                            modifier = Modifier.padding(vertical = 10.dp),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (state.isFixedExpense) AccentAmber else SlateBackground,
+                            border = if (state.isFixedExpense) null else BorderStroke(1.dp, SlateCardLight),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    state.isFixedExpense = true
+                                    state.customFixedInstallments = emptyList()
+                                }
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.Store,
+                                        contentDescription = null,
+                                        tint = if (state.isFixedExpense) NavySurface else AccentAmber,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = "Gasto Fijo",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (state.isFixedExpense) NavySurface else TextPrimaryDark
+                                    )
+                                }
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = "Pago recurrente continuo",
+                                    fontSize = 9.sp,
+                                    color = if (state.isFixedExpense) NavySurface.copy(alpha = 0.8f) else TextSecondaryDark
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -1932,22 +2006,85 @@ fun AddCommitmentDialog(
                     }
                 }
 
+                // 1. Name
                 OutlinedTextField(
                     value = state.title,
-                    onValueChange = { state.title = it },
-                    label = { Text(if (state.isFixedExpense) "Nombre del Gasto Fijo (ej. Alquiler, Internet)" else "Título (ej. Cashea Zapatería, Crédito Banco)") },
+                    onValueChange = { newTitle ->
+                        state.title = newTitle
+                        if (state.commitmentToEdit == null) {
+                            val lower = newTitle.lowercase()
+                            val fixedKeywords = listOf("alquiler", "internet", "netflix", "luz", "agua", "gas", "cantv", "condominio", "colegio", "suscripcion", "suscripción", "servicio", "renta", "gym", "gimnasio", "sueldo", "nomina", "nómina")
+                            if (fixedKeywords.any { lower.contains(it) }) {
+                                state.isFixedExpense = true
+                            }
+                        }
+                    },
+                    label = { Text(if (state.isFixedExpense) "Nombre del Gasto Fijo" else "Título (ej. Cashea, Préstamo)") },
                     modifier = Modifier.fillMaxWidth().testTag("commitment_title_input"),
                     singleLine = true
                 )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                // 2. Date
+                val startDateToUse = if (state.isFixedExpense) state.fixedExpenseDueDate else state.commitmentStartDate
+                val startDateFmt = SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("es-ES")).format(startDateToUse)
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = SlateCardLight,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (state.isFixedExpense) "Fecha de inicio / primer cobro:" else "Fecha de inicio de la deuda / compra:",
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimaryDark,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            if (state.isFixedExpense) {
+                                val cal = Calendar.getInstance().apply { time = startDateToUse }
+                                val dayNum = cal.get(Calendar.DAY_OF_MONTH)
+                                Text(
+                                    text = "Día recurrente: día $dayNum de cada ciclo (${state.frequency.displayName})",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = EmeraldLight,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = EmeraldDark.copy(alpha = 0.35f),
+                            modifier = Modifier.clickable {
+                                showPlatformDatePicker(context, startDateToUse) { newDate ->
+                                    if (state.isFixedExpense) {
+                                        state.fixedExpenseDueDate = newDate
+                                        state.customFixedInstallments = emptyList()
+                                    } else {
+                                        state.commitmentStartDate = newDate
+                                        state.customInstallments = emptyList()
+                                    }
+                                }
+                            }
+                        ) {
+                            Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(startDateFmt, color = EmeraldLight, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
+                // 3. Amount and Currency
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = state.totalAmountText,
                         onValueChange = { state.totalAmountText = it },
-                        label = { Text("Monto Base") },
+                        label = { Text(if (state.isFixedExpense) "Monto recurrente" else "Monto Base") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.weight(1.3f).testTag("commitment_total_input"),
                         singleLine = true
@@ -1973,19 +2110,19 @@ fun AddCommitmentDialog(
                         ) {
                             AppCurrency.entries.forEach { c ->
                                 DropdownMenuItem(
-                                    text = { Text("${c.flagEmoji} ${c.symbolWithCode} - ${c.displayName}") },
-                                    onClick = {
-                                        state.selectedCurrency = c
-                                        state.currExpanded = false
-                                    }
+                                    text = { Text("${c.flagEmoji} ${c.symbolWithCode}") },
+                                    onClick = { state.selectedCurrency = c; state.currExpanded = false }
                                 )
                             }
                         }
                     }
                 }
 
+                // 4. Conditional Fields
                 if (!state.isFixedExpense) {
-                    // Initial Payment (Inicial)
+                    // DEUDA TEMPORAL / CRÉDITO
+
+                    // Inicial (opcional)
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = SlateCardLight,
@@ -1994,9 +2131,7 @@ fun AddCommitmentDialog(
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { state.hasDownPayment = !state.hasDownPayment }
+                                modifier = Modifier.fillMaxWidth().clickable { state.hasDownPayment = !state.hasDownPayment }
                             ) {
                                 Checkbox(
                                     checked = state.hasDownPayment,
@@ -2012,20 +2147,19 @@ fun AddCommitmentDialog(
                                         color = TextPrimaryDark
                                     )
                                     Text(
-                                        text = if (state.hasDownPayment) "El saldo restante se dividirá en las cuotas" else "Sin inicial (100% financiado)",
+                                        text = if (state.hasDownPayment) "Se descuenta antes de financiar cuotas" else "Sin inicial (100% financiado)",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = if (state.hasDownPayment) EmeraldLight else TextSecondaryDark,
                                         fontSize = 11.sp
                                     )
                                 }
                             }
-
                             if (state.hasDownPayment) {
                                 Spacer(Modifier.height(8.dp))
                                 OutlinedTextField(
                                     value = state.downPaymentText,
                                     onValueChange = { state.downPaymentText = it },
-                                    label = { Text("Monto de Cuota Inicial (${state.selectedCurrency.symbol})") },
+                                    label = { Text("Monto de la Cuota Inicial") },
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                     modifier = Modifier.fillMaxWidth().testTag("down_payment_input"),
                                     singleLine = true
@@ -2034,133 +2168,136 @@ fun AddCommitmentDialog(
                         }
                     }
 
-                    // Cuotas y Frecuencia
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = state.installmentsCountText,
-                            onValueChange = { state.installmentsCountText = it },
-                            label = { Text("Cantidad de Cuotas") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f).testTag("commitment_installments_input"),
-                            singleLine = true
-                        )
-
-                        ExposedDropdownMenuBox(
-                            expanded = state.freqExpanded,
-                            onExpandedChange = { state.freqExpanded = it },
-                            modifier = Modifier.weight(1.3f)
-                        ) {
-                            OutlinedTextField(
-                                value = state.frequency.displayName,
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("Frecuencia") },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = state.freqExpanded) },
-                                modifier = Modifier.menuAnchor().fillMaxWidth()
-                            )
-                            ExposedDropdownMenu(
-                                expanded = state.freqExpanded,
-                                onDismissRequest = { state.freqExpanded = false }
-                            ) {
-                                Frequency.entries.forEach { f ->
-                                    DropdownMenuItem(
-                                        text = { Text(f.displayName) },
-                                        onClick = {
-                                            state.frequency = f
-                                            state.freqExpanded = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Start date
-                    val debtStartCal = Calendar.getInstance().apply { time = state.commitmentStartDate }
-                    val debtStartDayOfMonth = debtStartCal.get(Calendar.DAY_OF_MONTH)
-                    val debtStartDateFmt = SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("es-ES")).format(state.commitmentStartDate)
-
+                    // Cuotas (opcional via Checkbox)
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = SlateCardLight,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Column(modifier = Modifier.padding(12.dp)) {
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    state.hasInstallments = !state.hasInstallments
+                                    state.customInstallments = emptyList()
+                                }
                             ) {
+                                Checkbox(
+                                    checked = state.hasInstallments,
+                                    onCheckedChange = {
+                                        state.hasInstallments = it
+                                        state.customInstallments = emptyList()
+                                    },
+                                    modifier = Modifier.testTag("has_installments_checkbox")
+                                )
+                                Spacer(Modifier.width(8.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "Fecha de inicio del egreso / compra:",
+                                        text = "¿Esta deuda se paga en cuotas?",
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = TextPrimaryDark
                                     )
                                     Text(
-                                        text = when (state.frequency) {
-                                            Frequency.MONTHLY -> "Día de pago recurrente: día $debtStartDayOfMonth de cada mes"
-                                            Frequency.BIMONTHLY -> "Día de pago recurrente: cada 2 meses el día $debtStartDayOfMonth"
-                                            Frequency.QUARTERLY -> "Día de pago recurrente: cada 3 meses el día $debtStartDayOfMonth"
-                                            Frequency.FOUR_MONTHLY -> "Día de pago recurrente: cada 4 meses el día $debtStartDayOfMonth"
-                                            Frequency.SEMIANNUAL -> "Día de pago recurrente: cada 6 meses el día $debtStartDayOfMonth"
-                                            Frequency.ANNUAL -> "Día de pago recurrente: anualmente cada $debtStartDayOfMonth de " + SimpleDateFormat("MMMM", Locale.forLanguageTag("es-ES")).format(state.commitmentStartDate)
-                                            Frequency.BIWEEKLY -> "Día de pago recurrente: cada 15 días a partir del $debtStartDateFmt"
-                                            Frequency.WEEKLY -> "Día de pago recurrente: semanal a partir del $debtStartDateFmt"
-                                            Frequency.CUSTOM -> "Día de pago recurrente: cada ${state.customDays} días a partir del $debtStartDateFmt"
-                                        },
+                                        text = if (state.hasInstallments) "Plan financiado en cuotas periódicas" else "1 pago único en fecha prevista (sin cuotas)",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = EmeraldLight,
+                                        color = if (state.hasInstallments) EmeraldLight else TextSecondaryDark,
                                         fontSize = 11.sp
                                     )
                                 }
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = EmeraldDark.copy(alpha = 0.35f),
-                                    modifier = Modifier.clickable {
-                                        showPlatformDatePicker(context, state.commitmentStartDate) { newDate ->
-                                            state.commitmentStartDate = newDate
+                            }
+
+                            if (state.hasInstallments) {
+                                Spacer(Modifier.height(10.dp))
+                                // Cuotas, Frecuencia y Cuotas adelantadas en la misma línea
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = state.installmentsCountText,
+                                        onValueChange = {
+                                            state.installmentsCountText = it
                                             state.customInstallments = emptyList()
+                                        },
+                                        label = { Text("Cuotas", fontSize = 11.sp) },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        modifier = Modifier.weight(0.9f).testTag("installments_count_input"),
+                                        singleLine = true
+                                    )
+
+                                    ExposedDropdownMenuBox(
+                                        expanded = state.freqExpanded,
+                                        onExpandedChange = { state.freqExpanded = it },
+                                        modifier = Modifier.weight(1.3f)
+                                    ) {
+                                        OutlinedTextField(
+                                            value = when(state.frequency) {
+                                                Frequency.MONTHLY -> "Mensual"
+                                                Frequency.BIWEEKLY -> "Quincenal"
+                                                Frequency.WEEKLY -> "Semanal"
+                                                Frequency.BIMONTHLY -> "2 Meses"
+                                                Frequency.QUARTERLY -> "3 Meses"
+                                                Frequency.FOUR_MONTHLY -> "4 Meses"
+                                                Frequency.SEMIANNUAL -> "6 Meses"
+                                                Frequency.ANNUAL -> "Anual"
+                                                Frequency.CUSTOM -> "Personal."
+                                            },
+                                            onValueChange = {},
+                                            readOnly = true,
+                                            label = { Text("Frecuencia", fontSize = 11.sp) },
+                                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = state.freqExpanded) },
+                                            modifier = Modifier.menuAnchor().fillMaxWidth(),
+                                            singleLine = true
+                                        )
+                                        ExposedDropdownMenu(
+                                            expanded = state.freqExpanded,
+                                            onDismissRequest = { state.freqExpanded = false }
+                                        ) {
+                                            Frequency.entries.forEach { f ->
+                                                DropdownMenuItem(
+                                                    text = { Text(f.displayName) },
+                                                    onClick = {
+                                                        state.frequency = f
+                                                        state.freqExpanded = false
+                                                        state.customInstallments = emptyList()
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
-                                ) {
-                                    Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(16.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(debtStartDateFmt, color = EmeraldLight, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
-                                    }
+
+                                    OutlinedTextField(
+                                        value = state.alreadyPaidCountText,
+                                        onValueChange = {
+                                            state.alreadyPaidCountText = it
+                                            state.customInstallments = emptyList()
+                                        },
+                                        label = { Text("Adelantadas", fontSize = 11.sp) },
+                                        placeholder = { Text("0") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        modifier = Modifier.weight(1f).testTag("already_paid_installments_input"),
+                                        singleLine = true
+                                    )
+                                }
+
+                                if (state.frequency == Frequency.CUSTOM) {
+                                    Spacer(Modifier.height(8.dp))
+                                    OutlinedTextField(
+                                        value = state.customDaysText,
+                                        onValueChange = { state.customDaysText = it; state.customInstallments = emptyList() },
+                                        label = { Text("Frecuencia personalizada: ¿Cada cuántos días se paga cada cuota?") },
+                                        placeholder = { Text("Ej. 21") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        modifier = Modifier.fillMaxWidth().testTag("commitment_custom_days_input"),
+                                        singleLine = true
+                                    )
                                 }
                             }
                         }
                     }
 
-                    if (state.frequency == Frequency.CUSTOM) {
-                        OutlinedTextField(
-                            value = state.customDaysText,
-                            onValueChange = { state.customDaysText = it; state.customInstallments = emptyList() },
-                            label = { Text("Frecuencia personalizada: ¿Cada cuántos días se paga cada cuota?") },
-                            placeholder = { Text("Ej. 45") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.fillMaxWidth().testTag("commitment_custom_days_input"),
-                            singleLine = true
-                        )
-                    }
-
-                    OutlinedTextField(
-                        value = state.alreadyPaidCountText,
-                        onValueChange = { state.alreadyPaidCountText = it },
-                        label = { Text("Cuotas ya pagadas previamente (ej. 0 o 1)") },
-                        placeholder = { Text("0") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth().testTag("already_paid_installments_input"),
-                        singleLine = true
-                    )
-
-                    // Intereses
+                    // Intereses (opcional via Checkbox)
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = SlateCardLight,
@@ -2259,7 +2396,11 @@ fun AddCommitmentDialog(
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
                                 Text(
-                                    text = "Monto por cuota: ${state.selectedCurrency.symbol} ${String.format(Locale.US, "%.2f", state.calculatedInstallmentAmount)} $freqDesc",
+                                    text = if (state.hasInstallments) {
+                                        "Monto por cuota: ${state.selectedCurrency.symbol} ${String.format(Locale.US, "%.2f", state.calculatedInstallmentAmount)} $freqDesc"
+                                    } else {
+                                        "Monto total a pagar: ${state.selectedCurrency.symbol} ${String.format(Locale.US, "%.2f", state.totalWithInterest)}"
+                                    },
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = EmeraldLight,
                                     fontWeight = FontWeight.Bold
@@ -2274,7 +2415,7 @@ fun AddCommitmentDialog(
                                 }
                                 if (state.applyInterest && state.rawInterestRate > 0) {
                                     Text(
-                                        text = "Total a pagar (${state.totalInstallments} cuotas + ${state.rawInterestRate}% ${if (state.isAnnualInterest) "anual" else "mensual"}): ${state.selectedCurrency.symbol} ${String.format(Locale.US, "%.2f", state.totalWithInterest)}",
+                                        text = "Total a pagar (${if (state.hasInstallments) "${state.totalInstallments} cuotas" else "1 pago"} + ${state.rawInterestRate}% ${if (state.isAnnualInterest) "anual" else "mensual"}): ${state.selectedCurrency.symbol} ${String.format(Locale.US, "%.2f", state.totalWithInterest)}",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = AccentAmber,
                                         fontSize = 11.sp
@@ -2352,56 +2493,6 @@ fun AddCommitmentDialog(
                                 )
                             }
 
-                            val fixedStartCal = Calendar.getInstance().apply { time = state.fixedExpenseDueDate }
-                            val fixedStartDayOfMonth = fixedStartCal.get(Calendar.DAY_OF_MONTH)
-                            val fixedDueDateFmt = SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("es-ES")).format(state.fixedExpenseDueDate)
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Fecha primer cobro / inicio:",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = TextPrimaryDark
-                                    )
-                                    Text(
-                                        text = when (state.frequency) {
-                                            Frequency.MONTHLY -> "Día de pago recurrente: día $fixedStartDayOfMonth de cada mes"
-                                            Frequency.BIMONTHLY -> "Día de pago recurrente: cada 2 meses el día $fixedStartDayOfMonth"
-                                            Frequency.QUARTERLY -> "Día de pago recurrente: cada 3 meses el día $fixedStartDayOfMonth"
-                                            Frequency.FOUR_MONTHLY -> "Día de pago recurrente: cada 4 meses el día $fixedStartDayOfMonth"
-                                            Frequency.SEMIANNUAL -> "Día de pago recurrente: cada 6 meses el día $fixedStartDayOfMonth"
-                                            Frequency.ANNUAL -> "Día de pago recurrente: cada año el día $fixedStartDayOfMonth de " + SimpleDateFormat("MMMM", Locale.forLanguageTag("es-ES")).format(state.fixedExpenseDueDate)
-                                            Frequency.BIWEEKLY -> "Día de pago recurrente: cada 15 días a partir del $fixedDueDateFmt"
-                                            Frequency.WEEKLY -> "Día de pago recurrente: semanal a partir del $fixedDueDateFmt"
-                                            Frequency.CUSTOM -> "Día de pago recurrente: cada ${state.customDays} días a partir del $fixedDueDateFmt"
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = EmeraldLight,
-                                        fontSize = 11.sp
-                                    )
-                                }
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = EmeraldDark.copy(alpha = 0.35f),
-                                    modifier = Modifier.clickable {
-                                        showPlatformDatePicker(context, state.fixedExpenseDueDate) { newDate ->
-                                            state.fixedExpenseDueDate = newDate
-                                            state.customFixedInstallments = emptyList()
-                                        }
-                                    }
-                                ) {
-                                    Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(16.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(fixedDueDateFmt, color = EmeraldLight, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
-                                    }
-                                }
-                            }
-
                             // Optional End Date
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
@@ -2432,7 +2523,7 @@ fun AddCommitmentDialog(
                                                 color = TextPrimaryDark
                                             )
                                             Text(
-                                                text = if (state.hasEndDate) "No se proyectarán cuotas después de la fecha fin" else "Gasto recurrente permanente / indefinido",
+                                                text = if (state.hasEndDate) "La app calcula automáticamente las cuotas hasta la fecha fin" else "Gasto recurrente permanente / indefinido",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = if (state.hasEndDate) EmeraldLight else TextSecondaryDark,
                                                 fontSize = 11.sp
@@ -2443,16 +2534,25 @@ fun AddCommitmentDialog(
                                     if (state.hasEndDate) {
                                         Spacer(Modifier.height(8.dp))
                                         val fixedEndDateFmt = SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("es-ES")).format(state.fixedExpenseEndDate)
+                                        val calculatedCycles = state.computeActiveFixedSchedule().size
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Text(
-                                                text = "Fecha de fin / expiración:",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = TextSecondaryDark
-                                            )
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "Fecha de fin / expiración:",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = TextSecondaryDark
+                                                )
+                                                Text(
+                                                    text = "Total calculado: $calculatedCycles pagos proyectados",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = EmeraldLight,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
                                             Surface(
                                                 shape = RoundedCornerShape(8.dp),
                                                 color = EmeraldDark.copy(alpha = 0.35f),
@@ -2474,25 +2574,27 @@ fun AddCommitmentDialog(
                                 }
                             }
 
-                            OutlinedTextField(
-                                value = state.fixedCyclesCountText,
-                                onValueChange = {
-                                    state.fixedCyclesCountText = it
-                                    state.customFixedInstallments = emptyList()
-                                },
-                                label = { Text("Número de pagos o cuotas a planificar") },
-                                placeholder = { Text("6") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true
-                            )
+                            if (!state.hasEndDate) {
+                                OutlinedTextField(
+                                    value = state.fixedCyclesCountText,
+                                    onValueChange = {
+                                        state.fixedCyclesCountText = it
+                                        state.customFixedInstallments = emptyList()
+                                    },
+                                    label = { Text("Número de pagos o cuotas a planificar (proyección inicial)") },
+                                    placeholder = { Text("6") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true
+                                )
+                            }
                         }
                     }
 
                     FixedExpenseScheduleCard(state = state, context = context)
                 }
 
-                // Category
+                // 5. Category
                 val combinedCategories = (CATEGORY_EXPENSES + customCategories).distinct()
                 CategorySelectorDropdown(
                     selectedCategory = state.selectedCategory,
@@ -2502,6 +2604,7 @@ fun AddCommitmentDialog(
                     onCreateCategory = onCreateCategory
                 )
 
+                // 6. Notes
                 OutlinedTextField(
                     value = state.notes,
                     onValueChange = { state.notes = it },
@@ -2512,6 +2615,7 @@ fun AddCommitmentDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
+                // 7. Buttons
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -2548,10 +2652,10 @@ fun AddCommitmentDialog(
                         Text(if (commitmentToEdit != null) "Actualizar" else "Crear")
                     }
                 }
-            }
-        }
-    }
-}
+            } // End Column
+        } // End Card
+    } // End Dialog
+} // End AddCommitmentDialog
 
 // Dialog to Pay / Record Installment
 @OptIn(ExperimentalMaterial3Api::class)
