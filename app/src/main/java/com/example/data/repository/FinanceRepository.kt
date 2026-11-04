@@ -33,13 +33,20 @@ private const val PREFS_NAME = "local_guest_finance_prefs"
 private const val KEY_GUEST_DATA = "guest_finance_json"
 
 class FinanceRepository(
-    private val db: FirebaseFirestore,
+    private val db: FirebaseFirestore?,
     private val context: Context? = null
 ) {
+    private val firestore: FirebaseFirestore
+        get() = db ?: throw IllegalStateException("Firebase App is not initialized.")
+
     constructor(context: Context) : this(
-        FirebaseFirestore.getInstance(
-            context.applicationContext.getString(R.string.firestore_database_id)
-        ),
+        try {
+            val databaseIdRes = context.applicationContext.resources.getIdentifier("firestore_database_id", "string", context.applicationContext.packageName)
+            val databaseId = if (databaseIdRes != 0) context.applicationContext.getString(databaseIdRes) else "ai-studio-android-finanzas-cc0cfb4f-7207-4923-ae50-256f4126d7eb"
+            FirebaseFirestore.getInstance(databaseId)
+        } catch (e: Exception) {
+            try { FirebaseFirestore.getInstance() } catch (ex: Exception) { null }
+        },
         context.applicationContext
     )
 
@@ -91,12 +98,12 @@ class FinanceRepository(
         }
     }
 
-    private fun isGuest(userId: String) = userId.isBlank() || userId == "local_guest"
+    private fun isGuest(userId: String) = db == null || userId.isBlank() || userId == "local_guest"
 
     // User Settings
     fun observeSettings(userId: String): Flow<UserSettings> {
-        if (isGuest(userId)) return _localSettings.asStateFlow()
-        return db.collection("users").document(userId).collection("settings").document("preferences")
+        if (isGuest(userId) || db == null) return _localSettings.asStateFlow()
+        return firestore.collection("users").document(userId).collection("settings").document("preferences")
             .snapshots()
             .map { snapshot ->
                 snapshot.toObject(UserSettings::class.java) ?: UserSettings()
@@ -104,19 +111,19 @@ class FinanceRepository(
     }
 
     suspend fun updateSettings(userId: String, settings: UserSettings) {
-        if (isGuest(userId)) {
+        if (isGuest(userId) || db == null) {
             _localSettings.value = settings
             persistLocalGuestData()
             return
         }
-        db.collection("users").document(userId).collection("settings").document("preferences")
+        firestore.collection("users").document(userId).collection("settings").document("preferences")
             .set(settings.toMap()).await()
     }
 
     // Accounts
     fun observeAccounts(userId: String): Flow<List<Account>> {
         if (isGuest(userId)) return _localAccounts.asStateFlow()
-        return db.collection("users").document(userId).collection("accounts")
+        return firestore.collection("users").document(userId).collection("accounts")
             .snapshots()
             .map { snapshot ->
                 snapshot.documents.mapNotNull { doc ->
@@ -141,7 +148,7 @@ class FinanceRepository(
             persistLocalGuestData()
             return generatedId
         }
-        val docRef = db.collection("users").document(userId).collection("accounts").document()
+        val docRef = firestore.collection("users").document(userId).collection("accounts").document()
         val accountWithId = account.copy(id = docRef.id, userId = userId)
         docRef.set(accountWithId.toMap()).await()
         return docRef.id
@@ -154,7 +161,7 @@ class FinanceRepository(
             return
         }
         if (account.id.isBlank()) return
-        val docRef = db.collection("users").document(userId).collection("accounts").document(account.id)
+        val docRef = firestore.collection("users").document(userId).collection("accounts").document(account.id)
         docRef.set(account.toMap(), com.google.firebase.firestore.SetOptions.merge()).await()
     }
 
@@ -164,7 +171,7 @@ class FinanceRepository(
             persistLocalGuestData()
             return
         }
-        db.collection("users").document(userId).collection("accounts").document(accountId).delete().await()
+        firestore.collection("users").document(userId).collection("accounts").document(accountId).delete().await()
     }
 
     // Transactions
@@ -172,7 +179,7 @@ class FinanceRepository(
         if (isGuest(userId)) {
             return _localTransactions.map { list -> list.sortedByDescending { it.date.seconds } }
         }
-        return db.collection("users").document(userId).collection("transactions")
+        return firestore.collection("users").document(userId).collection("transactions")
             .snapshots()
             .map { snapshot ->
                 snapshot.documents.mapNotNull { doc ->
@@ -219,7 +226,7 @@ class FinanceRepository(
             return
         }
 
-        val docRef = db.collection("users").document(userId).collection("transactions").document()
+        val docRef = firestore.collection("users").document(userId).collection("transactions").document()
         val transactionWithId = transaction.copy(
             id = docRef.id,
             userId = userId,
@@ -227,7 +234,7 @@ class FinanceRepository(
         )
         docRef.set(transactionWithId.toMap()).await()
 
-        val accountDoc = db.collection("users").document(userId).collection("accounts").document(transaction.accountId)
+        val accountDoc = firestore.collection("users").document(userId).collection("accounts").document(transaction.accountId)
         val delta = when (transaction.type) {
             TransactionType.INCOME.name -> transaction.amount
             TransactionType.EXPENSE.name -> -transaction.amount
@@ -239,7 +246,7 @@ class FinanceRepository(
         }
 
         if (transaction.type == TransactionType.TRANSFER.name && !transaction.targetAccountId.isNullOrBlank()) {
-            val targetDoc = db.collection("users").document(userId).collection("accounts").document(transaction.targetAccountId)
+            val targetDoc = firestore.collection("users").document(userId).collection("accounts").document(transaction.targetAccountId)
             targetDoc.update("currentBalance", FieldValue.increment(transaction.amount)).await()
         }
     }
@@ -267,8 +274,8 @@ class FinanceRepository(
             return
         }
 
-        db.collection("users").document(userId).collection("transactions").document(transaction.id).delete().await()
-        val accountDoc = db.collection("users").document(userId).collection("accounts").document(transaction.accountId)
+        firestore.collection("users").document(userId).collection("transactions").document(transaction.id).delete().await()
+        val accountDoc = firestore.collection("users").document(userId).collection("accounts").document(transaction.accountId)
         val revertDelta = when (transaction.type) {
             TransactionType.INCOME.name -> -transaction.amount
             TransactionType.EXPENSE.name -> transaction.amount
@@ -279,7 +286,7 @@ class FinanceRepository(
             accountDoc.update("currentBalance", FieldValue.increment(revertDelta)).await()
         }
         if (transaction.type == TransactionType.TRANSFER.name && !transaction.targetAccountId.isNullOrBlank()) {
-            val targetDoc = db.collection("users").document(userId).collection("accounts").document(transaction.targetAccountId)
+            val targetDoc = firestore.collection("users").document(userId).collection("accounts").document(transaction.targetAccountId)
             targetDoc.update("currentBalance", FieldValue.increment(-transaction.amount)).await()
         }
     }
@@ -289,7 +296,7 @@ class FinanceRepository(
         if (isGuest(userId)) {
             return _localCommitments.map { list -> list.sortedByDescending { it.createdAt?.seconds ?: 0L } }
         }
-        return db.collection("users").document(userId).collection("commitments")
+        return firestore.collection("users").document(userId).collection("commitments")
             .snapshots()
             .map { snapshot ->
                 snapshot.documents.mapNotNull { doc ->
@@ -323,7 +330,7 @@ class FinanceRepository(
             return genId
         }
 
-        val docRef = db.collection("users").document(userId).collection("commitments").document()
+        val docRef = firestore.collection("users").document(userId).collection("commitments").document()
         val commitmentWithId = commitment.copy(
             id = docRef.id,
             userId = userId,
@@ -341,7 +348,7 @@ class FinanceRepository(
             return
         }
         if (commitment.id.isBlank()) return
-        val docRef = db.collection("users").document(userId).collection("commitments").document(commitment.id)
+        val docRef = firestore.collection("users").document(userId).collection("commitments").document(commitment.id)
         docRef.set(commitment.toMap(), com.google.firebase.firestore.SetOptions.merge()).await()
     }
 
@@ -351,7 +358,7 @@ class FinanceRepository(
             persistLocalGuestData()
             return
         }
-        db.collection("users").document(userId).collection("commitments").document(commitmentId).delete().await()
+        firestore.collection("users").document(userId).collection("commitments").document(commitmentId).delete().await()
     }
 
     suspend fun toggleInstallmentPaid(
@@ -472,7 +479,7 @@ class FinanceRepository(
         _localTemplates.value = listOf(item) + _localTemplates.value.filter { it.id != genId }
         if (!isGuest(userId)) {
             try {
-                val docRef = db.collection("market_templates").document(genId)
+                val docRef = firestore.collection("market_templates").document(genId)
                 docRef.set(item.toMap()).await()
             } catch (e: Exception) {
                 Log.w(TAG, "Failed publishing template to cloud", e)
@@ -486,7 +493,7 @@ class FinanceRepository(
             if (it.id == templateId) it.copy(upvotes = it.upvotes + 1) else it
         }
         try {
-            db.collection("market_templates").document(templateId)
+            firestore.collection("market_templates").document(templateId)
                 .update("upvotes", FieldValue.increment(1)).await()
         } catch (e: Exception) {
             Log.w(TAG, "Failed upvoting in cloud", e)
@@ -507,7 +514,7 @@ class FinanceRepository(
             persistLocalGuestData()
             return "local_snapshot_${System.currentTimeMillis()}"
         }
-        val docRef = db.collection("users").document(userId).collection("backups").document()
+        val docRef = firestore.collection("users").document(userId).collection("backups").document()
         val data = mapOf(
             "id" to docRef.id,
             "userId" to userId,
@@ -541,27 +548,27 @@ class FinanceRepository(
 
         for (acc in parsed.accounts) {
             val docRef = if (acc.id.isNotBlank()) {
-                db.collection("users").document(userId).collection("accounts").document(acc.id)
+                firestore.collection("users").document(userId).collection("accounts").document(acc.id)
             } else {
-                db.collection("users").document(userId).collection("accounts").document()
+                firestore.collection("users").document(userId).collection("accounts").document()
             }
             docRef.set(acc.copy(id = docRef.id, userId = userId).toMap()).await()
         }
 
         for (com in parsed.commitments) {
             val docRef = if (com.id.isNotBlank()) {
-                db.collection("users").document(userId).collection("commitments").document(com.id)
+                firestore.collection("users").document(userId).collection("commitments").document(com.id)
             } else {
-                db.collection("users").document(userId).collection("commitments").document()
+                firestore.collection("users").document(userId).collection("commitments").document()
             }
             docRef.set(com.copy(id = docRef.id, userId = userId).toMap()).await()
         }
 
         for (tx in parsed.transactions) {
             val docRef = if (tx.id.isNotBlank()) {
-                db.collection("users").document(userId).collection("transactions").document(tx.id)
+                firestore.collection("users").document(userId).collection("transactions").document(tx.id)
             } else {
-                db.collection("users").document(userId).collection("transactions").document()
+                firestore.collection("users").document(userId).collection("transactions").document()
             }
             docRef.set(tx.copy(id = docRef.id, userId = userId).toMap()).await()
         }
@@ -573,7 +580,7 @@ class FinanceRepository(
         if (isGuest(userId)) {
             return kotlinx.coroutines.flow.flowOf(emptyList())
         }
-        return db.collection("users").document(userId).collection("backups")
+        return firestore.collection("users").document(userId).collection("backups")
             .snapshots()
             .map { querySnapshot ->
                 querySnapshot.documents.mapNotNull { doc ->
@@ -613,7 +620,7 @@ class FinanceRepository(
 
     suspend fun deleteCloudBackup(userId: String, backupId: String) {
         if (!isGuest(userId)) {
-            db.collection("users").document(userId).collection("backups").document(backupId).delete().await()
+            firestore.collection("users").document(userId).collection("backups").document(backupId).delete().await()
         }
     }
 }

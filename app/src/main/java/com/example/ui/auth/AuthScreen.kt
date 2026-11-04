@@ -153,16 +153,23 @@ fun AuthScreen(
                     val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
                     val idToken = googleIdTokenCredential.idToken
                     val authCredential = GoogleAuthProvider.getCredential(idToken, null)
-                    FirebaseAuth.getInstance().signInWithCredential(authCredential)
-                        .addOnSuccessListener {
-                            isLoading = false
-                            onSignInSuccess()
-                        }
-                        .addOnFailureListener { ex ->
-                            isLoading = false
-                            errorMessage = "Firebase no validó la credencial: ${ex.localizedMessage ?: "Error de autenticación"}. Verifica conexión o usa Modo Local."
-                            Log.e(TAG, "Firebase auth error", ex)
-                        }
+                    try {
+                        val authInstance = FirebaseAuth.getInstance()
+                        authInstance.signInWithCredential(authCredential)
+                            .addOnSuccessListener {
+                                isLoading = false
+                                onSignInSuccess()
+                            }
+                            .addOnFailureListener { ex ->
+                                isLoading = false
+                                errorMessage = "Firebase no validó la credencial: ${ex.localizedMessage ?: "Error de autenticación"}. Puedes usar Modo Local."
+                                Log.e(TAG, "Firebase auth error", ex)
+                            }
+                    } catch (e: Exception) {
+                        isLoading = false
+                        errorMessage = "Firebase no está inicializado en esta compilación (${e.localizedMessage}). Puedes presionar 'Continuar sin cuenta (Modo Local)'."
+                        Log.e(TAG, "Firebase getInstance error", e)
+                    }
                 } else {
                     isLoading = false
                     errorMessage = "Tipo de credencial no reconocido: ${(credential as? CustomCredential)?.type ?: credential.javaClass.simpleName}. Usa Modo Local."

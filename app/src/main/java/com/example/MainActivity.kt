@@ -87,14 +87,19 @@ fun AppRoot(
             key = activeUserId,
             factory = viewModelFactory {
                 initializer {
-                    val db = try {
+                    val repository = try {
                         val databaseIdRes = context.resources.getIdentifier("firestore_database_id", "string", context.packageName)
                         val databaseId = if (databaseIdRes != 0) context.getString(databaseIdRes) else "ai-studio-android-finanzas-cc0cfb4f-7207-4923-ae50-256f4126d7eb"
-                        FirebaseFirestore.getInstance(databaseId)
+                        val db = try {
+                            FirebaseFirestore.getInstance(databaseId)
+                        } catch (e: Exception) {
+                            FirebaseFirestore.getInstance()
+                        }
+                        FinanceRepository(db, context.applicationContext)
                     } catch (e: Exception) {
-                        FirebaseFirestore.getInstance()
+                        // Fallback repository for guest mode when Firebase project is missing/uninitialized
+                        FinanceRepository(context.applicationContext)
                     }
-                    val repository = FinanceRepository(db, context.applicationContext)
                     FinanceViewModel(repository, activeUserId)
                 }
             }
