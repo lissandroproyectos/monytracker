@@ -5,8 +5,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
@@ -49,13 +51,25 @@ internal fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
 
 @Composable
 fun AppRoot(
-    auth: FirebaseAuth = FirebaseAuth.getInstance()
+    auth: FirebaseAuth? = try { FirebaseAuth.getInstance() } catch (e: Exception) { null }
 ) {
     val context = LocalContext.current
-    val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
+    var currentUserState by remember { mutableStateOf<FirebaseUser?>(null) }
     var isGuestMode by rememberSaveable { mutableStateOf(false) }
 
-    val user = currentUser
+    LaunchedEffect(auth) {
+        if (auth != null) {
+            try {
+                auth.authStateFlow().collect { user ->
+                    currentUserState = user
+                }
+            } catch (e: Exception) {
+                // Ignore auth flow errors and fallback to guest mode
+            }
+        }
+    }
+
+    val user = currentUserState ?: auth?.currentUser
 
     if (user == null && !isGuestMode) {
         AuthScreen(
@@ -68,13 +82,18 @@ fun AppRoot(
         )
     } else {
         val activeUserId = if (user != null) user.uid else "local_guest"
-        val databaseId = stringResource(R.string.firestore_database_id)
 
         val viewModel: FinanceViewModel = viewModel(
             key = activeUserId,
             factory = viewModelFactory {
                 initializer {
-                    val db = FirebaseFirestore.getInstance(databaseId)
+                    val db = try {
+                        val databaseIdRes = context.resources.getIdentifier("firestore_database_id", "string", context.packageName)
+                        val databaseId = if (databaseIdRes != 0) context.getString(databaseIdRes) else "ai-studio-android-finanzas-cc0cfb4f-7207-4923-ae50-256f4126d7eb"
+                        FirebaseFirestore.getInstance(databaseId)
+                    } catch (e: Exception) {
+                        FirebaseFirestore.getInstance()
+                    }
                     val repository = FinanceRepository(db, context.applicationContext)
                     FinanceViewModel(repository, activeUserId)
                 }
@@ -85,7 +104,7 @@ fun AppRoot(
             viewModel = viewModel,
             onSignOut = {
                 isGuestMode = false
-                auth.signOut()
+                try { auth?.signOut() } catch (e: Exception) {}
             }
         )
     }
