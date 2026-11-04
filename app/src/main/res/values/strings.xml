@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Finanzas</string>
+    <string name="default_web_client_id" translatable="false">166010243644-q8chp7cgoo1ltng0fi7u3h8gi9jm8hhr.apps.googleusercontent.com</string>
 </resources>

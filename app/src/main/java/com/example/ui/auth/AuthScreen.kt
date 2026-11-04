@@ -106,13 +106,14 @@ fun AuthScreen(
     val scope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-
     fun launchGoogleSignIn() {
-        val webClientId = try {
-            context.getString(R.string.default_web_client_id)
-        } catch (e: Exception) {
+        val webClientId = run {
             val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
-            if (resId != 0) context.getString(resId) else ""
+            if (resId != 0) {
+                try { context.getString(resId) } catch (e: Exception) { "" }
+            } else {
+                "166010243644-q8chp7cgoo1ltng0fi7u3h8gi9jm8hhr.apps.googleusercontent.com"
+            }
         }
 
         if (webClientId.isBlank()) {
