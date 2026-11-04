@@ -32,21 +32,26 @@ object AppUpdateManager {
         val cleanCur = currentVersion.removePrefix("v").removePrefix("V").trim()
         if (cleanTag.equals(cleanCur, ignoreCase = true)) return true
 
-        val pTag = cleanTag.split(".").mapNotNull { seg ->
-            val digits = seg.takeWhile { it.isDigit() }
-            if (digits.isNotBlank()) digits.toIntOrNull() else null
+        // Extract integer segments from version strings (e.g. "1.20" -> [1, 20], "1.18" -> [1, 18])
+        val pTag = cleanTag.split(".").map { seg ->
+            seg.takeWhile { it.isDigit() }.toIntOrNull() ?: 0
         }
-        val pCur = cleanCur.split(".").mapNotNull { seg ->
-            val digits = seg.takeWhile { it.isDigit() }
-            if (digits.isNotBlank()) digits.toIntOrNull() else null
+        val pCur = cleanCur.split(".").map { seg ->
+            seg.takeWhile { it.isDigit() }.toIntOrNull() ?: 0
         }
 
         val maxLen = maxOf(pTag.size, pCur.size)
         for (i in 0 until maxLen) {
-            val curNum = pCur.getOrElse(i) { 0 }
             val tagNum = pTag.getOrElse(i) { 0 }
-            if (curNum > tagNum) return true
-            if (curNum < tagNum) return false
+            val curNum = pCur.getOrElse(i) { 0 }
+            if (tagNum > curNum) {
+                // Published version on GitHub is higher than current version -> NOT up to date!
+                return false
+            }
+            if (curNum > tagNum) {
+                // Current version is higher than published tag -> Up to date
+                return true
+            }
         }
         return true
     }
