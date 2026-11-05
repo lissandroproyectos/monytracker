@@ -71,6 +71,7 @@ import com.example.data.model.TransactionType
 import com.example.ui.components.AddCommitmentDialog
 import com.example.ui.components.AddTransactionDialog
 import com.example.ui.components.BackupRestoreDialog
+import com.example.ui.components.CelebrationOverlay
 import com.example.ui.components.CurrencySettingsDialog
 import com.example.ui.components.InstallmentsScheduleDialog
 import com.example.ui.components.PayCommitmentDialog
@@ -134,6 +135,7 @@ fun MainApp(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val userMessage by viewModel.userMessage.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    val celebrationEvent by viewModel.celebrationEvent.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -443,6 +445,13 @@ fun MainApp(
                 }
             },
             containerColor = com.example.ui.theme.SlateCard
+        )
+    }
+
+    celebrationEvent?.let { data ->
+        CelebrationOverlay(
+            data = data,
+            onDismiss = { viewModel.clearCelebration() }
         )
     }
 

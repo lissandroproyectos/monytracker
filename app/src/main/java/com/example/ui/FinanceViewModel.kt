@@ -18,6 +18,8 @@ import com.example.data.model.PaymentMode
 import com.example.data.model.Transaction
 import com.example.data.model.UserSettings
 import com.example.data.repository.FinanceRepository
+import com.example.ui.components.CelebrationData
+import com.example.ui.components.formatCurrency
 import com.google.firebase.Timestamp
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -266,6 +268,9 @@ class FinanceViewModel(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage = _errorMessage.asStateFlow()
 
+    private val _celebrationEvent = MutableStateFlow<CelebrationData?>(null)
+    val celebrationEvent = _celebrationEvent.asStateFlow()
+
     private val _isRefreshingRates = MutableStateFlow(false)
     val isRefreshingRates = _isRefreshingRates.asStateFlow()
 
@@ -290,6 +295,14 @@ class FinanceViewModel(
     fun clearMessage() {
         _userMessage.value = null
         _errorMessage.value = null
+    }
+
+    fun clearCelebration() {
+        _celebrationEvent.value = null
+    }
+
+    fun triggerCelebration(data: CelebrationData) {
+        _celebrationEvent.value = data
     }
 
     fun updateSafetyCushion(amount: Double) {
@@ -443,8 +456,33 @@ class FinanceViewModel(
     fun payCommitment(payment: InstallmentPayment, commitment: ExpenseCommitment, account: Account) {
         viewModelScope.launch {
             try {
+                val newRemaining = (commitment.remainingAmount - payment.amount).coerceAtLeast(0.0)
+                val isPaidOff = newRemaining <= 0.001
+                val commCurrency = AppCurrency.fromCode(commitment.currency)
+
                 repository.recordPayment(currentUserId, payment, commitment, account, exchangeRates.value)
                 _userMessage.value = UiMessage.Success("Pago registrado y debitado de ${account.name}")
+
+                val title = if (isPaidOff) "¡Felicidades! 🎉 ¡Deuda Saldada!" else "¡Pago Registrado! 🎊"
+                val message = if (isPaidOff) {
+                    if (commitment.isFixedExpense) {
+                        "¡Has completado el ciclo del gasto fijo \"${commitment.title}\"!"
+                    } else {
+                        "¡Has terminado y salido de la deuda \"${commitment.title}\"! Disfruta tu logro y libertad financiera."
+                    }
+                } else {
+                    "Se debitó ${formatCurrency(payment.amount, commCurrency.symbol)} para \"${commitment.title}\". ¡Un paso más cerca de tu meta!"
+                }
+
+                _celebrationEvent.value = CelebrationData(
+                    title = title,
+                    message = message,
+                    commitmentTitle = commitment.title,
+                    amountPaid = payment.amount,
+                    remainingAmount = newRemaining,
+                    currencySymbol = commCurrency.symbol,
+                    isPaidOff = isPaidOff
+                )
             } catch (e: Exception) {
                 _errorMessage.value = "Error registrando pago: ${e.localizedMessage}"
             }
@@ -454,6 +492,11 @@ class FinanceViewModel(
     fun toggleInstallment(commitment: ExpenseCommitment, installmentNumber: Long, markAsPaid: Boolean, payFromAccount: Account?) {
         viewModelScope.launch {
             try {
+                val currentInstallments = commitment.getProjectedInstallments()
+                val willBeAllPaid = markAsPaid && currentInstallments.all {
+                    if (it.number == installmentNumber) true else it.isPaid
+                }
+
                 repository.toggleInstallmentPaid(
                     currentUserId,
                     commitment,
@@ -464,6 +507,19 @@ class FinanceViewModel(
                 )
                 val statusText = if (markAsPaid) "marcada como pagada" else "marcada como pendiente"
                 _userMessage.value = UiMessage.Success("Cuota #$installmentNumber $statusText")
+
+                if (willBeAllPaid) {
+                    val commCurrency = AppCurrency.fromCode(commitment.currency)
+                    _celebrationEvent.value = CelebrationData(
+                        title = "¡Felicidades! 🎉 ¡Deuda Saldada!",
+                        message = "¡Has completado todas las cuotas de \"${commitment.title}\"! ¡Eres libre de esta deuda!",
+                        commitmentTitle = commitment.title,
+                        amountPaid = commitment.installmentAmount,
+                        remainingAmount = 0.0,
+                        currencySymbol = commCurrency.symbol,
+                        isPaidOff = true
+                    )
+                }
             } catch (e: Exception) {
                 _errorMessage.value = "Error actualizando cuota: ${e.localizedMessage}"
             }

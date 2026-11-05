@@ -98,6 +98,9 @@ data class ExpenseCommitment(
     var isAnnualInterest: Boolean = false,
     val customDays: Int = 30,
     val frequency: String = Frequency.MONTHLY.name,
+    val paymentDayOfMonth: Int = 0,
+    val secondPaymentDay: Int = 0,
+    val paymentDayOfWeek: Int = 0,
     val startDate: Timestamp = Timestamp.now(),
     val endDate: Timestamp? = null,
     val dueDate: Timestamp = Timestamp.now(),
@@ -115,6 +118,54 @@ data class ExpenseCommitment(
             return (paid / totalAmount).toFloat().coerceIn(0f, 1f)
         }
 
+    fun getScheduleSummary(): String {
+        val freq = Frequency.entries.find { it.name == frequency } ?: Frequency.MONTHLY
+        val startCal = Calendar.getInstance().apply { time = startDate.toDate() }
+        val startDay = startCal.get(Calendar.DAY_OF_MONTH)
+        val dayMonth = if (paymentDayOfMonth in 1..31) paymentDayOfMonth else startDay
+        val secondDay = if (secondPaymentDay in 1..31) secondPaymentDay else (if (dayMonth <= 15) dayMonth + 15 else (dayMonth - 15).coerceAtLeast(1))
+        val dayWeek = if (paymentDayOfWeek in Calendar.SUNDAY..Calendar.SATURDAY) paymentDayOfWeek else startCal.get(Calendar.DAY_OF_WEEK)
+
+        val dayWeekName = when (dayWeek) {
+            Calendar.MONDAY -> "Lunes"
+            Calendar.TUESDAY -> "Martes"
+            Calendar.WEDNESDAY -> "Miércoles"
+            Calendar.THURSDAY -> "Jueves"
+            Calendar.FRIDAY -> "Viernes"
+            Calendar.SATURDAY -> "Sábado"
+            Calendar.SUNDAY -> "Domingo"
+            else -> "semana"
+        }
+
+        val d1 = minOf(dayMonth, secondDay)
+        val d2 = maxOf(dayMonth, secondDay)
+
+        return when (freq) {
+            Frequency.WEEKLY -> "Semanal (cada $dayWeekName)"
+            Frequency.BIWEEKLY -> "Quincenal (días $d1 y $d2)"
+            Frequency.MONTHLY -> "Mensual (día $dayMonth)"
+            Frequency.BIMONTHLY -> "Bimensual (día $dayMonth)"
+            Frequency.QUARTERLY -> "Trimestral (día $dayMonth)"
+            Frequency.FOUR_MONTHLY -> "Cuatrimestral (día $dayMonth)"
+            Frequency.SEMIANNUAL -> "Semestral (día $dayMonth)"
+            Frequency.ANNUAL -> "Anual (día $dayMonth)"
+            Frequency.CUSTOM -> "Cada $customDays días"
+        }
+    }
+
+    fun getNextPaymentDateText(): String {
+        val unpaid = getProjectedInstallments().firstOrNull { !it.isPaid }
+        return if (unpaid != null) {
+            val sdf = java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.forLanguageTag("es-ES"))
+            "Próx: " + sdf.format(unpaid.dueDate.toDate())
+        } else if (endDate != null) {
+            val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
+            "Fin: " + sdf.format(endDate.toDate())
+        } else {
+            "Saldado"
+        }
+    }
+
     fun getProjectedInstallments(): List<ProjectedInstallment> {
         if (installments.isNotEmpty()) {
             val list = installments.map { ProjectedInstallment.fromMap(it) }
@@ -129,62 +180,160 @@ data class ExpenseCommitment(
         val list = mutableListOf<ProjectedInstallment>()
         val freq = Frequency.entries.find { it.name == frequency } ?: Frequency.MONTHLY
         val startCal = Calendar.getInstance().apply { time = startDate.toDate() }
-        val startDayOfMonth = startCal.get(Calendar.DAY_OF_MONTH)
+        val startDay = startCal.get(Calendar.DAY_OF_MONTH)
+        val dayMonth = if (paymentDayOfMonth in 1..31) paymentDayOfMonth else startDay
+        val secondDay = if (secondPaymentDay in 1..31) secondPaymentDay else (if (dayMonth <= 15) dayMonth + 15 else (dayMonth - 15).coerceAtLeast(1))
+        val dayWeek = if (paymentDayOfWeek in Calendar.SUNDAY..Calendar.SATURDAY) paymentDayOfWeek else startCal.get(Calendar.DAY_OF_WEEK)
+
         val count = totalInstallments.toInt().coerceAtLeast(1)
         val financedAmount = (totalAmount - downPayment).coerceAtLeast(0.0)
         val singleAmount = if (installmentAmount > 0) installmentAmount else (if (count > 0) financedAmount / count else financedAmount)
 
-        for (i in 1..count) {
-            val dueCal = startCal.clone() as Calendar
-            val offset = i - 1
-            when (freq) {
-                Frequency.WEEKLY -> dueCal.add(Calendar.WEEK_OF_YEAR, offset)
-                Frequency.BIWEEKLY -> dueCal.add(Calendar.DAY_OF_YEAR, offset * 15)
-                Frequency.MONTHLY -> {
-                    dueCal.add(Calendar.MONTH, offset)
-                    val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                    dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
+        when (freq) {
+            Frequency.WEEKLY -> {
+                val cal = startCal.clone() as Calendar
+                val curDow = cal.get(Calendar.DAY_OF_WEEK)
+                val diff = (dayWeek - curDow + 7) % 7
+                cal.add(Calendar.DAY_OF_YEAR, diff)
+                for (i in 1..count) {
+                    val dueCal = cal.clone() as Calendar
+                    dueCal.add(Calendar.WEEK_OF_YEAR, i - 1)
+                    if (endDate != null && dueCal.time.after(endDate.toDate())) break
+                    val isAlreadyPaid = i <= paidInstallments
+                    list.add(
+                        ProjectedInstallment(
+                            number = i.toLong(),
+                            dueDate = Timestamp(dueCal.time),
+                            amount = singleAmount,
+                            isPaid = isAlreadyPaid,
+                            paidDate = if (isAlreadyPaid) Timestamp(dueCal.time) else null
+                        )
+                    )
                 }
-                Frequency.BIMONTHLY -> {
-                    dueCal.add(Calendar.MONTH, offset * 2)
-                    val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                    dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                }
-                Frequency.QUARTERLY -> {
-                    dueCal.add(Calendar.MONTH, offset * 3)
-                    val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                    dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                }
-                Frequency.FOUR_MONTHLY -> {
-                    dueCal.add(Calendar.MONTH, offset * 4)
-                    val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                    dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                }
-                Frequency.SEMIANNUAL -> {
-                    dueCal.add(Calendar.MONTH, offset * 6)
-                    val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                    dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                }
-                Frequency.ANNUAL -> {
-                    dueCal.add(Calendar.YEAR, offset)
-                    val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                    dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                }
-                Frequency.CUSTOM -> dueCal.add(Calendar.DAY_OF_YEAR, offset * (if (customDays > 0) customDays else 30))
             }
-            if (endDate != null && dueCal.time.after(endDate.toDate())) {
-                break
+            Frequency.BIWEEKLY -> {
+                val d1 = minOf(dayMonth, secondDay)
+                val d2 = maxOf(dayMonth, secondDay)
+                val cal = startCal.clone() as Calendar
+                var curMonth = cal.get(Calendar.MONTH)
+                var curYear = cal.get(Calendar.YEAR)
+                var useSecond = cal.get(Calendar.DAY_OF_MONTH) > d1
+                if (cal.get(Calendar.DAY_OF_MONTH) > d2) {
+                    useSecond = false
+                    curMonth++
+                    if (curMonth > 11) { curMonth = 0; curYear++ }
+                }
+
+                for (i in 1..count) {
+                    val dueCal = Calendar.getInstance().apply {
+                        set(Calendar.YEAR, curYear)
+                        set(Calendar.MONTH, curMonth)
+                        val targetD = if (useSecond) d2 else d1
+                        val maxD = getActualMaximum(Calendar.DAY_OF_MONTH)
+                        set(Calendar.DAY_OF_MONTH, targetD.coerceAtMost(maxD))
+                        set(Calendar.HOUR_OF_DAY, 12)
+                        set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0)
+                    }
+                    if (useSecond) {
+                        useSecond = false
+                        curMonth++
+                        if (curMonth > 11) { curMonth = 0; curYear++ }
+                    } else {
+                        useSecond = true
+                    }
+                    if (endDate != null && dueCal.time.after(endDate.toDate())) break
+                    val isAlreadyPaid = i <= paidInstallments
+                    list.add(
+                        ProjectedInstallment(
+                            number = i.toLong(),
+                            dueDate = Timestamp(dueCal.time),
+                            amount = singleAmount,
+                            isPaid = isAlreadyPaid,
+                            paidDate = if (isAlreadyPaid) Timestamp(dueCal.time) else null
+                        )
+                    )
+                }
             }
-            val isAlreadyPaid = i <= paidInstallments
-            list.add(
-                ProjectedInstallment(
-                    number = i.toLong(),
-                    dueDate = Timestamp(dueCal.time),
-                    amount = singleAmount,
-                    isPaid = isAlreadyPaid,
-                    paidDate = if (isAlreadyPaid) Timestamp(dueCal.time) else null
-                )
-            )
+            Frequency.MONTHLY -> {
+                val cal = startCal.clone() as Calendar
+                var curMonth = cal.get(Calendar.MONTH)
+                var curYear = cal.get(Calendar.YEAR)
+                if (cal.get(Calendar.DAY_OF_MONTH) > dayMonth) {
+                    curMonth++
+                    if (curMonth > 11) { curMonth = 0; curYear++ }
+                }
+                for (i in 1..count) {
+                    val dueCal = Calendar.getInstance().apply {
+                        set(Calendar.YEAR, curYear)
+                        set(Calendar.MONTH, curMonth)
+                        val maxD = getActualMaximum(Calendar.DAY_OF_MONTH)
+                        set(Calendar.DAY_OF_MONTH, dayMonth.coerceAtMost(maxD))
+                        set(Calendar.HOUR_OF_DAY, 12)
+                        set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0)
+                    }
+                    curMonth++
+                    if (curMonth > 11) { curMonth = 0; curYear++ }
+                    if (endDate != null && dueCal.time.after(endDate.toDate())) break
+                    val isAlreadyPaid = i <= paidInstallments
+                    list.add(
+                        ProjectedInstallment(
+                            number = i.toLong(),
+                            dueDate = Timestamp(dueCal.time),
+                            amount = singleAmount,
+                            isPaid = isAlreadyPaid,
+                            paidDate = if (isAlreadyPaid) Timestamp(dueCal.time) else null
+                        )
+                    )
+                }
+            }
+            else -> {
+                for (i in 1..count) {
+                    val dueCal = startCal.clone() as Calendar
+                    val offset = i - 1
+                    when (freq) {
+                        Frequency.BIMONTHLY -> {
+                            dueCal.add(Calendar.MONTH, offset * 2)
+                            val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                            dueCal.set(Calendar.DAY_OF_MONTH, dayMonth.coerceAtMost(maxDay))
+                        }
+                        Frequency.QUARTERLY -> {
+                            dueCal.add(Calendar.MONTH, offset * 3)
+                            val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                            dueCal.set(Calendar.DAY_OF_MONTH, dayMonth.coerceAtMost(maxDay))
+                        }
+                        Frequency.FOUR_MONTHLY -> {
+                            dueCal.add(Calendar.MONTH, offset * 4)
+                            val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                            dueCal.set(Calendar.DAY_OF_MONTH, dayMonth.coerceAtMost(maxDay))
+                        }
+                        Frequency.SEMIANNUAL -> {
+                            dueCal.add(Calendar.MONTH, offset * 6)
+                            val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                            dueCal.set(Calendar.DAY_OF_MONTH, dayMonth.coerceAtMost(maxDay))
+                        }
+                        Frequency.ANNUAL -> {
+                            dueCal.add(Calendar.YEAR, offset)
+                            val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                            dueCal.set(Calendar.DAY_OF_MONTH, dayMonth.coerceAtMost(maxDay))
+                        }
+                        Frequency.CUSTOM -> dueCal.add(Calendar.DAY_OF_YEAR, offset * (if (customDays > 0) customDays else 30))
+                        else -> dueCal.add(Calendar.MONTH, offset)
+                    }
+                    if (endDate != null && dueCal.time.after(endDate.toDate())) break
+                    val isAlreadyPaid = i <= paidInstallments
+                    list.add(
+                        ProjectedInstallment(
+                            number = i.toLong(),
+                            dueDate = Timestamp(dueCal.time),
+                            amount = singleAmount,
+                            isPaid = isAlreadyPaid,
+                            paidDate = if (isAlreadyPaid) Timestamp(dueCal.time) else null
+                        )
+                    )
+                }
+            }
         }
         return list
     }
@@ -209,6 +358,9 @@ data class ExpenseCommitment(
             "annualInterest" to isAnnualInterest,
             "customDays" to customDays,
             "frequency" to frequency,
+            "paymentDayOfMonth" to paymentDayOfMonth,
+            "secondPaymentDay" to secondPaymentDay,
+            "paymentDayOfWeek" to paymentDayOfWeek,
             "startDate" to startDate,
             "endDate" to endDate,
             "dueDate" to dueDate,

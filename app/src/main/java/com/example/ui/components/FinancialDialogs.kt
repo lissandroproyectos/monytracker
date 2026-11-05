@@ -982,6 +982,57 @@ class AddCommitmentState(
     var defaultAccountId by mutableStateOf(commitmentToEdit?.accountId ?: defaultAccountIdInitial)
     var notes by mutableStateOf(commitmentToEdit?.notes ?: prefilledTemplate?.description ?: "")
 
+    private val initialCal = Calendar.getInstance().apply {
+        time = (try { commitmentToEdit?.startDate?.toDate() } catch (e: Exception) { null } ?: Date())
+    }
+
+    var paymentDayOfMonth by mutableStateOf(
+        if (commitmentToEdit != null && commitmentToEdit.paymentDayOfMonth in 1..31) {
+            commitmentToEdit.paymentDayOfMonth
+        } else {
+            initialCal.get(Calendar.DAY_OF_MONTH)
+        }
+    )
+
+    var secondPaymentDay by mutableStateOf(
+        if (commitmentToEdit != null && commitmentToEdit.secondPaymentDay in 1..31) {
+            commitmentToEdit.secondPaymentDay
+        } else {
+            val d = if (commitmentToEdit != null && commitmentToEdit.paymentDayOfMonth in 1..31) commitmentToEdit.paymentDayOfMonth else initialCal.get(Calendar.DAY_OF_MONTH)
+            if (d <= 15) d + 15 else (d - 15).coerceAtLeast(1)
+        }
+    )
+
+    var paymentDayOfWeek by mutableStateOf(
+        if (commitmentToEdit != null && commitmentToEdit.paymentDayOfWeek in Calendar.SUNDAY..Calendar.SATURDAY) {
+            commitmentToEdit.paymentDayOfWeek
+        } else {
+            initialCal.get(Calendar.DAY_OF_WEEK)
+        }
+    )
+
+    fun onUpdatePaymentDayOfMonth(day: Int) {
+        val clamped = day.coerceIn(1, 31)
+        paymentDayOfMonth = clamped
+        if (frequency == Frequency.BIWEEKLY) {
+            secondPaymentDay = if (clamped <= 15) clamped + 15 else (clamped - 15).coerceAtLeast(1)
+        }
+        customInstallments = emptyList()
+        customFixedInstallments = emptyList()
+    }
+
+    fun onUpdateSecondPaymentDay(day: Int) {
+        secondPaymentDay = day.coerceIn(1, 31)
+        customInstallments = emptyList()
+        customFixedInstallments = emptyList()
+    }
+
+    fun onUpdatePaymentDayOfWeek(dow: Int) {
+        paymentDayOfWeek = dow
+        customInstallments = emptyList()
+        customFixedInstallments = emptyList()
+    }
+
     var showTemplatePicker by mutableStateOf(false)
     var showCreateCustomTemplateForm by mutableStateOf(false)
     var customTemplateTitle by mutableStateOf("")
@@ -1048,128 +1099,54 @@ class AddCommitmentState(
         return if (customInstallments.isNotEmpty() && customInstallments.size == totalInstallments.toInt()) {
             customInstallments
         } else {
-            val list = mutableListOf<ProjectedInstallment>()
-            val startCal = Calendar.getInstance().apply { time = commitmentStartDate }
-            val startDayOfMonth = startCal.get(Calendar.DAY_OF_MONTH)
-            for (i in 1..totalInstallments.toInt()) {
-                val dueCal = startCal.clone() as Calendar
-                when (frequency) {
-                    Frequency.WEEKLY -> dueCal.add(Calendar.WEEK_OF_YEAR, i)
-                    Frequency.BIWEEKLY -> dueCal.add(Calendar.DAY_OF_YEAR, i * 15)
-                    Frequency.MONTHLY -> {
-                        dueCal.add(Calendar.MONTH, i)
-                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                    }
-                    Frequency.BIMONTHLY -> {
-                        dueCal.add(Calendar.MONTH, i * 2)
-                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                    }
-                    Frequency.QUARTERLY -> {
-                        dueCal.add(Calendar.MONTH, i * 3)
-                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                    }
-                    Frequency.FOUR_MONTHLY -> {
-                        dueCal.add(Calendar.MONTH, i * 4)
-                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                    }
-                    Frequency.SEMIANNUAL -> {
-                        dueCal.add(Calendar.MONTH, i * 6)
-                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                    }
-                    Frequency.ANNUAL -> {
-                        dueCal.add(Calendar.YEAR, i)
-                        val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                        dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                    }
-                    Frequency.CUSTOM -> dueCal.add(Calendar.DAY_OF_YEAR, i * customDays)
-                }
-                val isPaid = i <= alreadyPaidCount
-                list.add(
-                    ProjectedInstallment(
-                        number = i.toLong(),
-                        dueDate = Timestamp(dueCal.time),
-                        amount = calculatedInstallmentAmount,
-                        isPaid = isPaid,
-                        paidDate = if (isPaid) Timestamp(dueCal.time) else null
-                    )
-                )
-            }
-            list
+            val temp = ExpenseCommitment(
+                startDate = Timestamp(commitmentStartDate),
+                totalInstallments = totalInstallments,
+                paidInstallments = alreadyPaidCount,
+                installmentAmount = calculatedInstallmentAmount,
+                frequency = frequency.name,
+                paymentDayOfMonth = paymentDayOfMonth,
+                secondPaymentDay = secondPaymentDay,
+                paymentDayOfWeek = paymentDayOfWeek,
+                customDays = customDays
+            )
+            temp.getProjectedInstallments()
         }
     }
 
     fun computeActiveFixedSchedule(): List<ProjectedInstallment> {
-        val list = mutableListOf<ProjectedInstallment>()
-        val startCal = Calendar.getInstance().apply { time = fixedExpenseDueDate }
-        val startDayOfMonth = startCal.get(Calendar.DAY_OF_MONTH)
         val maxLimit = if (hasEndDate) 120 else (fixedCyclesCountText.toIntOrNull() ?: 6).coerceIn(1, 48)
-
-        for (i in 1..maxLimit) {
-            val dueCal = startCal.clone() as Calendar
-            when (frequency) {
-                Frequency.WEEKLY -> dueCal.add(Calendar.WEEK_OF_YEAR, i - 1)
-                Frequency.BIWEEKLY -> dueCal.add(Calendar.DAY_OF_YEAR, (i - 1) * 15)
-                Frequency.MONTHLY -> {
-                    dueCal.add(Calendar.MONTH, i - 1)
-                    val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                    dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                }
-                Frequency.BIMONTHLY -> {
-                    dueCal.add(Calendar.MONTH, (i - 1) * 2)
-                    val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                    dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                }
-                Frequency.QUARTERLY -> {
-                    dueCal.add(Calendar.MONTH, (i - 1) * 3)
-                    val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                    dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                }
-                Frequency.FOUR_MONTHLY -> {
-                    dueCal.add(Calendar.MONTH, (i - 1) * 4)
-                    val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                    dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                }
-                Frequency.SEMIANNUAL -> {
-                    dueCal.add(Calendar.MONTH, (i - 1) * 6)
-                    val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                    dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                }
-                Frequency.ANNUAL -> {
-                    dueCal.add(Calendar.YEAR, i - 1)
-                    val maxDay = dueCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                    dueCal.set(Calendar.DAY_OF_MONTH, startDayOfMonth.coerceAtMost(maxDay))
-                }
-                Frequency.CUSTOM -> dueCal.add(Calendar.DAY_OF_YEAR, (i - 1) * customDays)
-            }
-            if (hasEndDate) {
-                val endCalLimit = Calendar.getInstance().apply {
+        val temp = ExpenseCommitment(
+            startDate = Timestamp(fixedExpenseDueDate),
+            endDate = if (hasEndDate) {
+                val endCal = Calendar.getInstance().apply {
                     time = fixedExpenseEndDate
                     set(Calendar.HOUR_OF_DAY, 23)
                     set(Calendar.MINUTE, 59)
                     set(Calendar.SECOND, 59)
                     set(Calendar.MILLISECOND, 999)
                 }
-                if (dueCal.after(endCalLimit)) {
-                    break
-                }
+                Timestamp(endCal.time)
+            } else null,
+            totalInstallments = maxLimit.toLong(),
+            installmentAmount = totalAmount,
+            frequency = frequency.name,
+            paymentDayOfMonth = paymentDayOfMonth,
+            secondPaymentDay = secondPaymentDay,
+            paymentDayOfWeek = paymentDayOfWeek,
+            customDays = customDays
+        )
+        val generated = temp.getProjectedInstallments()
+        return if (customFixedInstallments.isNotEmpty()) {
+            generated.mapIndexed { idx, p ->
+                val custom = customFixedInstallments.getOrNull(idx)
+                if (custom != null) {
+                    custom.copy(isPaid = custom.isPaid)
+                } else p
             }
-            val existingCustom = customFixedInstallments.getOrNull(i - 1)
-            list.add(
-                existingCustom ?: ProjectedInstallment(
-                    number = i.toLong(),
-                    dueDate = Timestamp(dueCal.time),
-                    amount = totalAmount,
-                    isPaid = false,
-                    paidDate = null
-                )
-            )
+        } else {
+            generated
         }
-        return list
     }
 
 
@@ -1196,6 +1173,9 @@ class AddCommitmentState(
                 isAnnualInterest = false,
                 customDays = customDays,
                 frequency = frequency.name,
+                paymentDayOfMonth = paymentDayOfMonth,
+                secondPaymentDay = secondPaymentDay,
+                paymentDayOfWeek = paymentDayOfWeek,
                 startDate = effectiveFixedSchedule.firstOrNull()?.dueDate ?: Timestamp(fixedExpenseDueDate),
                 endDate = if (hasEndDate) {
                     val endCal = Calendar.getInstance().apply {
@@ -1236,6 +1216,9 @@ class AddCommitmentState(
                 isAnnualInterest = isAnnualInterest,
                 customDays = customDays,
                 frequency = frequency.name,
+                paymentDayOfMonth = paymentDayOfMonth,
+                secondPaymentDay = secondPaymentDay,
+                paymentDayOfWeek = paymentDayOfWeek,
                 startDate = Timestamp(commitmentStartDate),
                 dueDate = effectiveSchedule.firstOrNull()?.dueDate ?: Timestamp.now(),
                 accountId = defaultAccountId.ifBlank { null },
@@ -1819,6 +1802,282 @@ fun FixedExpenseScheduleCard(
     }
 }
 
+@Composable
+fun PaymentDayConfigSection(state: AddCommitmentState) {
+    when (state.frequency) {
+        Frequency.WEEKLY -> {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                color = SlateBackground.copy(alpha = 0.6f),
+                border = BorderStroke(1.dp, EmeraldPrimary.copy(alpha = 0.2f))
+            ) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.CalendarMonth,
+                            contentDescription = null,
+                            tint = EmeraldPrimary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "¿Qué día de la semana se paga?",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimaryDark
+                        )
+                    }
+
+                    val daysOfWeek = listOf(
+                        Calendar.MONDAY to "Lun",
+                        Calendar.TUESDAY to "Mar",
+                        Calendar.WEDNESDAY to "Mié",
+                        Calendar.THURSDAY to "Jue",
+                        Calendar.FRIDAY to "Vie",
+                        Calendar.SATURDAY to "Sáb",
+                        Calendar.SUNDAY to "Dom"
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        daysOfWeek.forEach { (calDay, label) ->
+                            val isSelected = state.paymentDayOfWeek == calDay
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { state.onUpdatePaymentDayOfWeek(calDay) }
+                                    .testTag("weekly_day_chip_$label"),
+                                color = if (isSelected) EmeraldPrimary else SlateCardLight,
+                                shape = RoundedCornerShape(8.dp),
+                                border = if (isSelected) null else BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+                            ) {
+                                Box(
+                                    modifier = Modifier.padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) Color.White else TextPrimaryDark
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    val dayName = when (state.paymentDayOfWeek) {
+                        Calendar.MONDAY -> "Lunes"
+                        Calendar.TUESDAY -> "Martes"
+                        Calendar.WEDNESDAY -> "Miércoles"
+                        Calendar.THURSDAY -> "Jueves"
+                        Calendar.FRIDAY -> "Viernes"
+                        Calendar.SATURDAY -> "Sábado"
+                        Calendar.SUNDAY -> "Domingo"
+                        else -> "el día seleccionado"
+                    }
+                    Text(
+                        text = "📅 Se cobrará cada semana los $dayName",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = EmeraldLight
+                    )
+                }
+            }
+        }
+
+        Frequency.BIWEEKLY -> {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                color = SlateBackground.copy(alpha = 0.6f),
+                border = BorderStroke(1.dp, EmeraldPrimary.copy(alpha = 0.2f))
+            ) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.CalendarMonth,
+                            contentDescription = null,
+                            tint = EmeraldPrimary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "Días de pago quincenal (cada 15 días)",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimaryDark
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = if (state.paymentDayOfMonth > 0) state.paymentDayOfMonth.toString() else "",
+                            onValueChange = {
+                                val d = it.filter { ch -> ch.isDigit() }.toIntOrNull() ?: 1
+                                state.onUpdatePaymentDayOfMonth(d)
+                            },
+                            label = { Text("1er Pago (Día)", fontSize = 11.sp) },
+                            placeholder = { Text("12") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f).testTag("biweekly_day1_input"),
+                            singleLine = true
+                        )
+
+                        OutlinedTextField(
+                            value = if (state.secondPaymentDay > 0) state.secondPaymentDay.toString() else "",
+                            onValueChange = {
+                                val d = it.filter { ch -> ch.isDigit() }.toIntOrNull() ?: 15
+                                state.onUpdateSecondPaymentDay(d)
+                            },
+                            label = { Text("2do Pago (Día)", fontSize = 11.sp) },
+                            placeholder = { Text("27") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f).testTag("biweekly_day2_input"),
+                            singleLine = true
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(1 to 16, 12 to 27, 15 to 30).forEach { (d1, d2) ->
+                            val isSelected = (state.paymentDayOfMonth == d1 && state.secondPaymentDay == d2) ||
+                                (state.paymentDayOfMonth == d2 && state.secondPaymentDay == d1)
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable {
+                                        state.onUpdatePaymentDayOfMonth(d1)
+                                        state.onUpdateSecondPaymentDay(d2)
+                                    },
+                                color = if (isSelected) EmeraldPrimary.copy(alpha = 0.25f) else SlateCardLight,
+                                shape = RoundedCornerShape(6.dp),
+                                border = BorderStroke(1.dp, if (isSelected) EmeraldPrimary else Color.White.copy(alpha = 0.08f))
+                            ) {
+                                Box(
+                                    modifier = Modifier.padding(vertical = 5.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "$d1 y $d2",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) EmeraldLight else TextPrimaryDark
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    val d1 = minOf(state.paymentDayOfMonth, state.secondPaymentDay)
+                    val d2 = maxOf(state.paymentDayOfMonth, state.secondPaymentDay)
+                    Text(
+                        text = "📅 Pagos automáticos: días $d1 y $d2 de cada mes (+15 días)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = EmeraldLight
+                    )
+                }
+            }
+        }
+
+        Frequency.MONTHLY, Frequency.BIMONTHLY, Frequency.QUARTERLY, Frequency.FOUR_MONTHLY, Frequency.SEMIANNUAL, Frequency.ANNUAL -> {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                color = SlateBackground.copy(alpha = 0.6f),
+                border = BorderStroke(1.dp, EmeraldPrimary.copy(alpha = 0.2f))
+            ) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.CalendarMonth,
+                            contentDescription = null,
+                            tint = EmeraldPrimary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "¿Qué día del mes se realiza el pago?",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimaryDark
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = if (state.paymentDayOfMonth > 0) state.paymentDayOfMonth.toString() else "",
+                            onValueChange = {
+                                val d = it.filter { ch -> ch.isDigit() }.toIntOrNull() ?: 1
+                                state.onUpdatePaymentDayOfMonth(d)
+                            },
+                            label = { Text("Día (1..31)", fontSize = 11.sp) },
+                            placeholder = { Text("12") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(0.9f).testTag("monthly_payment_day_input"),
+                            singleLine = true
+                        )
+
+                        Row(
+                            modifier = Modifier.weight(2.1f),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            listOf(1, 5, 12, 15, 20, 25, 30).forEach { d ->
+                                val isSelected = state.paymentDayOfMonth == d
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable { state.onUpdatePaymentDayOfMonth(d) }
+                                        .testTag("day_chip_$d"),
+                                    color = if (isSelected) EmeraldPrimary else SlateCardLight,
+                                    shape = RoundedCornerShape(6.dp),
+                                    border = if (isSelected) null else BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+                                ) {
+                                    Box(
+                                        modifier = Modifier.padding(vertical = 8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "$d",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) Color.White else TextPrimaryDark
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "📅 Se cobrará el día ${state.paymentDayOfMonth} de cada período",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = EmeraldLight
+                    )
+                }
+            }
+        }
+
+        Frequency.CUSTOM -> {
+            // Handled via customDays input
+        }
+    }
+}
+
 // Dialog to add Fixed Expense or Temporary Debt (Cuotas / Créditos)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -2319,6 +2578,9 @@ fun AddCommitmentDialog(
                                         modifier = Modifier.fillMaxWidth().testTag("commitment_custom_days_input"),
                                         singleLine = true
                                     )
+                                } else {
+                                    Spacer(Modifier.height(8.dp))
+                                    PaymentDayConfigSection(state = state)
                                 }
                             }
                         }
@@ -2518,6 +2780,8 @@ fun AddCommitmentDialog(
                                     modifier = Modifier.fillMaxWidth(),
                                     singleLine = true
                                 )
+                            } else {
+                                PaymentDayConfigSection(state = state)
                             }
 
                             // Optional End Date

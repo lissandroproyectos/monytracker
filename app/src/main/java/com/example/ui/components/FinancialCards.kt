@@ -875,7 +875,12 @@ fun CommitmentCard(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Amount & Frequency Info
+            // Amount, Paid, Remaining & Frequency Info
+            val convertedPaid = rates?.convert((commitment.totalAmount - commitment.remainingAmount).coerceAtLeast(0.0), origCurrency, displayCurrency) 
+                ?: (commitment.totalAmount - commitment.remainingAmount).coerceAtLeast(0.0)
+            val convertedRemaining = rates?.convert(commitment.remainingAmount, origCurrency, displayCurrency) 
+                ?: commitment.remainingAmount
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -886,7 +891,7 @@ fun CommitmentCard(
                         text = formatCurrency(convertedTotal, displayCurrency.symbol),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = EmeraldLight
+                        color = TextPrimaryDark
                     )
                     if (displayCurrency != origCurrency) {
                         Text(
@@ -900,17 +905,73 @@ fun CommitmentCard(
 
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = freqLabel,
+                        text = commitment.getScheduleSummary(),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = TextPrimaryDark
                     )
                     Text(
-                        text = "📅 $endDateStr",
+                        text = "📅 " + commitment.getNextPaymentDateText(),
                         style = MaterialTheme.typography.labelSmall,
                         color = TextSecondaryDark,
                         fontSize = 10.sp
                     )
+                }
+            }
+
+            if (!commitment.isFixedExpense || commitment.totalAmount > 0) {
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                // Progress bar
+                LinearProgressIndicator(
+                    progress = { commitment.progressPercentage },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)),
+                    color = if (isPaidOff) EmeraldLight else EmeraldPrimary,
+                    trackColor = SlateCardLight
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Breakdown: Pagado vs Falta por pagar
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "Pagado: ",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondaryDark,
+                            fontSize = 11.sp
+                        )
+                        Text(
+                            text = formatCurrency(convertedPaid, displayCurrency.symbol),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = EmeraldLight,
+                            fontSize = 11.sp
+                        )
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "Falta: ",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondaryDark,
+                            fontSize = 11.sp
+                        )
+                        Text(
+                            text = formatCurrency(convertedRemaining, displayCurrency.symbol),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (convertedRemaining <= 0.001) EmeraldLight else AccentAmber,
+                            fontSize = 11.sp
+                        )
+                    }
                 }
             }
         }
