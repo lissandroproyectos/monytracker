@@ -9,11 +9,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -1850,41 +1855,63 @@ fun AddCommitmentDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
     ) {
-        Card(
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 10.dp)
-                .testTag("add_commitment_dialog"),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = SlateCard)
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.6f))
+                .systemBarsPadding()
+                .imePadding()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Column(
+            Card(
                 modifier = Modifier
-                    .padding(20.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.94f)
+                    .testTag("add_commitment_dialog"),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = SlateCard)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (commitmentToEdit != null) {
-                            if (state.isFixedExpense) "Editar Gasto Fijo" else "Editar Deuda"
-                        } else {
-                            if (state.isFixedExpense) "Nuevo Gasto Fijo" else "Nueva Deuda / Plan de Cuotas"
-                        },
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimaryDark
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = TextSecondaryDark)
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // Pinned Header
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 18.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (commitmentToEdit != null) {
+                                if (state.isFixedExpense) "Editar Gasto Fijo" else "Editar Deuda"
+                            } else {
+                                if (state.isFixedExpense) "Nuevo Gasto Fijo" else "Nueva Deuda / Plan de Cuotas"
+                            },
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimaryDark
+                        )
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = TextSecondaryDark)
+                        }
                     }
-                }
+
+                    HorizontalDivider(color = SlateCardLight.copy(alpha = 0.5f))
+
+                    // Scrollable form body
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 18.dp, vertical = 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
 
                 // Selector: Gasto Fijo vs Deuda Temporal
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -2613,48 +2640,63 @@ fun AddCommitmentDialog(
                     singleLine = true
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
+                } // End scrollable form Column
 
-                // 7. Buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                HorizontalDivider(color = SlateCardLight.copy(alpha = 0.5f))
+
+                // Pinned Action Buttons at bottom
+                Surface(
+                    color = SlateCard,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                        Text("Cancelar")
-                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Cancelar", maxLines = 1)
+                        }
 
-                    if (onDelete != null) {
+                        if (onDelete != null) {
+                            Button(
+                                onClick = {
+                                    onDelete()
+                                    onDismiss()
+                                },
+                                modifier = Modifier.weight(1f).testTag("delete_commitment_btn"),
+                                colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
+                            ) {
+                                Text("Eliminar", maxLines = 1)
+                            }
+                        }
+
                         Button(
                             onClick = {
-                                onDelete()
-                                onDismiss()
+                                val commitment = state.buildCommitmentToSave()
+                                if (commitment != null) {
+                                    onSave(commitment)
+                                    onDismiss()
+                                }
                             },
-                            modifier = Modifier.weight(1f).testTag("delete_commitment_btn"),
-                            colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
+                            enabled = state.title.isNotBlank() && state.totalAmount > 0,
+                            modifier = Modifier.weight(1f).testTag("save_commitment_btn"),
+                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
                         ) {
-                            Text("Eliminar")
+                            Text(if (commitmentToEdit != null) "Actualizar" else "Crear", maxLines = 1)
                         }
                     }
-
-                    Button(
-                        onClick = {
-                            val commitment = state.buildCommitmentToSave()
-                            if (commitment != null) {
-                                onSave(commitment)
-                                onDismiss()
-                            }
-                        },
-                        enabled = state.title.isNotBlank() && state.totalAmount > 0,
-                        modifier = Modifier.weight(1f).testTag("save_commitment_btn"),
-                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
-                    ) {
-                        Text(if (commitmentToEdit != null) "Actualizar" else "Crear")
-                    }
                 }
-            } // End Column
+            } // End Card Column
         } // End Card
-    } // End Dialog
+    } // End Box
+} // End Dialog
 } // End AddCommitmentDialog
 
 // Dialog to Pay / Record Installment

@@ -260,10 +260,12 @@ fun DashboardScreen(
             items(activeCommitments.take(2), key = { it.id }) { comm ->
                 CommitmentCard(
                     commitment = comm,
-                    onPayClick = { onPayCommitment(comm) },
+                    onEditClick = { onViewInstallments(comm) },
                     onViewInstallmentsClick = { onViewInstallments(comm) },
+                    onPayClick = { onPayCommitment(comm) },
                     onShareAsTemplateClick = {},
-                    onDeleteClick = { viewModel.deleteCommitment(comm.id) }
+                    displayCurrency = health.displayCurrency,
+                    rates = rates
                 )
             }
         }

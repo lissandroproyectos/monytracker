@@ -294,10 +294,12 @@ fun CommitmentsScreen(
                 items(filteredCommitments, key = { it.id }) { comm ->
                     CommitmentCard(
                         commitment = comm,
+                        onEditClick = { commitmentToEdit = comm },
+                        onViewInstallmentsClick = { commitmentToEdit = comm },
                         onPayClick = { commitmentToPay = comm },
-                        onViewInstallmentsClick = { onViewInstallments(comm) },
                         onShareAsTemplateClick = { commitmentToShare = comm },
-                        onDeleteClick = {}
+                        displayCurrency = health.displayCurrency,
+                        rates = rates
                     )
                 }
             }

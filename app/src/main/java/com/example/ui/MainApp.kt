@@ -295,7 +295,7 @@ fun MainApp(
                     )
                     ScreenTab.COMMITMENTS -> CommitmentsScreen(
                         viewModel = viewModel,
-                        onViewInstallments = { comm -> commitmentToInspectInstallments = comm },
+                        onViewInstallments = { comm -> commitmentToEditInDialog = comm },
                         onOpenDebtTypes = {
                             prefilledTemplateForCommitment = null
                             showAddCommitmentDialog = true

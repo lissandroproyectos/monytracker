@@ -779,10 +779,10 @@ fun TransactionRow(
 @Composable
 fun CommitmentCard(
     commitment: ExpenseCommitment,
-    onPayClick: () -> Unit,
-    onViewInstallmentsClick: () -> Unit,
-    onShareAsTemplateClick: () -> Unit,
-    onDeleteClick: () -> Unit,
+    onPayClick: () -> Unit = {},
+    onViewInstallmentsClick: () -> Unit = {},
+    onShareAsTemplateClick: () -> Unit = {},
+    onDeleteClick: () -> Unit = {},
     onEditClick: (() -> Unit)? = null,
     displayCurrency: AppCurrency = AppCurrency.USD_BCV,
     rates: ExchangeRates? = null,
@@ -801,20 +801,28 @@ fun CommitmentCard(
         "Sin fecha fin definida"
     }
 
+    val handleCardClick = {
+        if (onEditClick != null) {
+            onEditClick()
+        } else {
+            onViewInstallmentsClick()
+        }
+    }
+
     Card(
         modifier = modifier
             .fillMaxWidth()
             .testTag("commitment_card_${commitment.id}")
-            .clickable { onViewInstallmentsClick() },
-        shape = RoundedCornerShape(18.dp),
+            .clickable { handleCardClick() },
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = SlateCard)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
-            // Header: Category, Type badge, Status & Actions
+            // Header: Category, Type badge, Status
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -830,7 +838,7 @@ fun CommitmentCard(
                             style = MaterialTheme.typography.labelSmall,
                             color = badgeColor,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                     }
                     Spacer(modifier = Modifier.width(6.dp))
@@ -841,35 +849,33 @@ fun CommitmentCard(
                     )
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        color = if (isPaidOff) EmeraldDark.copy(alpha = 0.4f) else SlateCardLight,
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(
-                            text = if (isPaidOff) "SALDADO" else "ACTIVO",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isPaidOff) EmeraldLight else AccentAmber,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
+                Surface(
+                    color = if (isPaidOff) EmeraldDark.copy(alpha = 0.4f) else SlateCardLight,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = if (isPaidOff) "SALDADO" else "ACTIVO",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isPaidOff) EmeraldLight else AccentAmber,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Title
             Text(
                 text = commitment.title,
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimaryDark
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-            // Amount & Currency Conversion
+            // Amount & Frequency Info
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -878,7 +884,7 @@ fun CommitmentCard(
                 Column {
                     Text(
                         text = formatCurrency(convertedTotal, displayCurrency.symbol),
-                        style = MaterialTheme.typography.headlineSmall,
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = EmeraldLight
                     )
@@ -903,22 +909,9 @@ fun CommitmentCard(
                         text = "📅 $endDateStr",
                         style = MaterialTheme.typography.labelSmall,
                         color = TextSecondaryDark,
-                        fontSize = 11.sp
+                        fontSize = 10.sp
                     )
                 }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Action row: Ver Detalles / Cuotas
-            OutlinedButton(
-                onClick = onViewInstallmentsClick,
-                modifier = Modifier.fillMaxWidth().testTag("view_installments_${commitment.id}"),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Icon(Icons.Default.FormatListNumbered, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Ver Detalles y Cuotas Planificadas", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }
