@@ -462,8 +462,7 @@ fun MainApp(
             currentCushion = health.safetyCushionAmount,
             onDismiss = { showCurrencySettingsDialog = false },
             onSave = { disp, pay, cushion ->
-                viewModel.updateCurrencies(disp, pay)
-                viewModel.updateSafetyCushion(cushion)
+                viewModel.updateCurrencyAndCushionSettings(disp, pay, cushion)
             }
         )
     }

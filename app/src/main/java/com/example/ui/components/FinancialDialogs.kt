@@ -897,6 +897,7 @@ fun cascadeRecalculateInstallments(
         val nextCal = baseCal.clone() as Calendar
         when (frequency) {
             Frequency.WEEKLY -> nextCal.add(Calendar.WEEK_OF_YEAR, step)
+            Frequency.CASHEA -> nextCal.add(Calendar.DAY_OF_YEAR, step * 14)
             Frequency.BIWEEKLY -> nextCal.add(Calendar.DAY_OF_YEAR, step * 15)
             Frequency.MONTHLY -> {
                 nextCal.add(Calendar.MONTH, step)
@@ -967,7 +968,7 @@ class AddCommitmentState(
     var hasInstallments by mutableStateOf(
         if (commitmentToEdit != null) {
             commitmentToEdit.totalInstallments > 1L || commitmentToEdit.paymentMode == PaymentMode.INSTALLMENTS.name
-        } else true
+        } else false
     )
     var applyInterest by mutableStateOf((commitmentToEdit?.interestRate ?: prefilledTemplate?.interestRate ?: 0.0) > 0.0)
     var isAnnualInterest by mutableStateOf(commitmentToEdit?.isAnnualInterest ?: prefilledTemplate?.isAnnualInterest ?: false)
@@ -1073,6 +1074,7 @@ class AddCommitmentState(
 
     val termInMonths: Double get() = when (frequency) {
         Frequency.WEEKLY -> (totalInstallments * 7.0) / 30.0
+        Frequency.CASHEA -> (totalInstallments * 14.0) / 30.0
         Frequency.BIWEEKLY -> (totalInstallments * 15.0) / 30.0
         Frequency.MONTHLY -> totalInstallments.toDouble()
         Frequency.BIMONTHLY -> totalInstallments.toDouble() * 2.0
@@ -1889,6 +1891,38 @@ fun PaymentDayConfigSection(state: AddCommitmentState) {
             }
         }
 
+        Frequency.CASHEA -> {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                color = SlateBackground.copy(alpha = 0.6f),
+                border = BorderStroke(1.dp, EmeraldPrimary.copy(alpha = 0.2f))
+            ) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.CalendarMonth,
+                            contentDescription = null,
+                            tint = EmeraldPrimary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "Modalidad Cashea (cada 14 días)",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimaryDark
+                        )
+                    }
+                    Text(
+                        text = "📅 Cuotas programadas automáticamente cada 14 días a partir de la fecha de inicio.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = EmeraldLight
+                    )
+                }
+            }
+        }
+
         Frequency.BIWEEKLY -> {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -2520,6 +2554,7 @@ fun AddCommitmentDialog(
                                         OutlinedTextField(
                                             value = when(state.frequency) {
                                                 Frequency.MONTHLY -> "Mensual"
+                                                Frequency.CASHEA -> "Cashea (14d)"
                                                 Frequency.BIWEEKLY -> "Quincenal"
                                                 Frequency.WEEKLY -> "Semanal"
                                                 Frequency.BIMONTHLY -> "2 Meses"
@@ -2720,8 +2755,6 @@ fun AddCommitmentDialog(
                             }
                         }
                     }
-
-                    DebtScheduleCard(state = state, context = context)
                 } else {
                     // GASTO FIJO RECURRENTE
                     Card(
@@ -2881,8 +2914,6 @@ fun AddCommitmentDialog(
                             }
                         }
                     }
-
-                    FixedExpenseScheduleCard(state = state, context = context)
                 }
 
                 // 5. Category

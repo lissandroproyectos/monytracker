@@ -1619,6 +1619,7 @@ private fun generatePlannedEvents(
                     while (time.before(startDate)) {
                         when (freq) {
                             Frequency.WEEKLY -> add(Calendar.DAY_OF_YEAR, 7)
+                            Frequency.CASHEA -> add(Calendar.DAY_OF_YEAR, 14)
                             Frequency.BIWEEKLY -> add(Calendar.DAY_OF_YEAR, 15)
                             Frequency.MONTHLY -> {
                                 add(Calendar.MONTH, 1)
@@ -1678,6 +1679,7 @@ private fun generatePlannedEvents(
                     }
                     when (freq) {
                         Frequency.WEEKLY -> iterCal.add(Calendar.DAY_OF_YEAR, 7)
+                        Frequency.CASHEA -> iterCal.add(Calendar.DAY_OF_YEAR, 14)
                         Frequency.BIWEEKLY -> iterCal.add(Calendar.DAY_OF_YEAR, 15)
                         Frequency.MONTHLY -> {
                             iterCal.add(Calendar.MONTH, 1)

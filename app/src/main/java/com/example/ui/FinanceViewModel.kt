@@ -313,6 +313,21 @@ class FinanceViewModel(
         }
     }
 
+    fun updateCurrencyAndCushionSettings(display: AppCurrency, payment: AppCurrency, cushion: Double) {
+        viewModelScope.launch {
+            val curr = settings.value
+            repository.updateSettings(
+                currentUserId,
+                curr.copy(
+                    displayCurrency = display.name,
+                    paymentCurrency = payment.name,
+                    safetyCushionAmount = cushion
+                )
+            )
+            _userMessage.value = UiMessage.Success("Configuración monetaria guardada: Ver en ${display.displayName}")
+        }
+    }
+
     fun updateCurrencies(display: AppCurrency, payment: AppCurrency) {
         viewModelScope.launch {
             val curr = settings.value

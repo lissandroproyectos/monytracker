@@ -24,6 +24,7 @@ enum class CommitmentStatus(val displayName: String) {
 
 enum class Frequency(val displayName: String, val daysInterval: Int) {
     WEEKLY("Semanal (cada 7 días)", 7),
+    CASHEA("Cashea (cada 14 días)", 14),
     BIWEEKLY("Quincenal (cada 15 días)", 15),
     MONTHLY("Mensual (cada mes)", 30),
     BIMONTHLY("Bimensual (cada 2 meses)", 60),
@@ -142,6 +143,7 @@ data class ExpenseCommitment(
 
         return when (freq) {
             Frequency.WEEKLY -> "Semanal (cada $dayWeekName)"
+            Frequency.CASHEA -> "Cashea (cada 14 días)"
             Frequency.BIWEEKLY -> "Quincenal (días $d1 y $d2)"
             Frequency.MONTHLY -> "Mensual (día $dayMonth)"
             Frequency.BIMONTHLY -> "Bimensual (día $dayMonth)"
@@ -198,6 +200,23 @@ data class ExpenseCommitment(
                 for (i in 1..count) {
                     val dueCal = cal.clone() as Calendar
                     dueCal.add(Calendar.WEEK_OF_YEAR, i - 1)
+                    if (endDate != null && dueCal.time.after(endDate.toDate())) break
+                    val isAlreadyPaid = i <= paidInstallments
+                    list.add(
+                        ProjectedInstallment(
+                            number = i.toLong(),
+                            dueDate = Timestamp(dueCal.time),
+                            amount = singleAmount,
+                            isPaid = isAlreadyPaid,
+                            paidDate = if (isAlreadyPaid) Timestamp(dueCal.time) else null
+                        )
+                    )
+                }
+            }
+            Frequency.CASHEA -> {
+                for (i in 1..count) {
+                    val dueCal = startCal.clone() as Calendar
+                    dueCal.add(Calendar.DAY_OF_YEAR, (i - 1) * 14)
                     if (endDate != null && dueCal.time.after(endDate.toDate())) break
                     val isAlreadyPaid = i <= paidInstallments
                     list.add(
