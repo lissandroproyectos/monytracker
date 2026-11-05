@@ -264,8 +264,14 @@ fun BackupRestoreDialog(
 
                     2 -> { // CLOUD SNAPSHOT (REQUIRES GOOGLE ACCOUNT)
                         val cloudBackups by viewModel.cloudBackups.collectAsStateWithLifecycle()
+                        val firebaseUser = remember {
+                            try {
+                                FirebaseAuth.getInstance().currentUser
+                            } catch (e: Exception) {
+                                null
+                            }
+                        }
                         var selectedSnapshotToRestore by remember { mutableStateOf<CloudBackupItem?>(null) }
-                        val firebaseUser = FirebaseAuth.getInstance().currentUser
 
                         if (viewModel.currentUserId == "local_guest" || firebaseUser == null) {
                             Card(

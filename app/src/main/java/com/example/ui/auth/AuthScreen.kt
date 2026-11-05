@@ -154,6 +154,7 @@ fun AuthScreen(
                     val idToken = googleIdTokenCredential.idToken
                     val authCredential = GoogleAuthProvider.getCredential(idToken, null)
                     try {
+                        com.example.FinanzasApplication.ensureFirebase(context.applicationContext)
                         val authInstance = FirebaseAuth.getInstance()
                         authInstance.signInWithCredential(authCredential)
                             .addOnSuccessListener {
@@ -162,12 +163,12 @@ fun AuthScreen(
                             }
                             .addOnFailureListener { ex ->
                                 isLoading = false
-                                errorMessage = "Firebase no validó la credencial: ${ex.localizedMessage ?: "Error de autenticación"}. Puedes usar Modo Local."
+                                errorMessage = "No se pudo sincronizar la cuenta con Firebase: ${ex.localizedMessage ?: "Error de autenticación"}. Puedes usar 'Continuar sin cuenta (Modo Local)'."
                                 Log.e(TAG, "Firebase auth error", ex)
                             }
                     } catch (e: Exception) {
                         isLoading = false
-                        errorMessage = "Firebase no está inicializado en esta compilación (${e.localizedMessage}). Puedes presionar 'Continuar sin cuenta (Modo Local)'."
+                        errorMessage = "Error al conectar con los servicios en la nube (${e.localizedMessage}). Puedes presionar 'Continuar sin cuenta (Modo Local)' para usar todas las funciones en tu teléfono."
                         Log.e(TAG, "Firebase getInstance error", e)
                     }
                 } else {

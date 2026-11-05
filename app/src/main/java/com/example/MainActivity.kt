@@ -50,10 +50,16 @@ internal fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
 }
 
 @Composable
-fun AppRoot(
-    auth: FirebaseAuth? = try { FirebaseAuth.getInstance() } catch (e: Exception) { null }
-) {
+fun AppRoot() {
     val context = LocalContext.current
+    val auth: FirebaseAuth? = remember {
+        try {
+            FinanzasApplication.ensureFirebase(context.applicationContext)
+            FirebaseAuth.getInstance()
+        } catch (e: Exception) {
+            null
+        }
+    }
     var currentUserState by remember { mutableStateOf<FirebaseUser?>(null) }
     var isGuestMode by rememberSaveable { mutableStateOf(false) }
 
@@ -87,18 +93,22 @@ fun AppRoot(
             key = activeUserId,
             factory = viewModelFactory {
                 initializer {
-                    val repository = try {
-                        val databaseIdRes = context.resources.getIdentifier("firestore_database_id", "string", context.packageName)
-                        val databaseId = if (databaseIdRes != 0) context.getString(databaseIdRes) else "ai-studio-android-finanzas-cc0cfb4f-7207-4923-ae50-256f4126d7eb"
-                        val db = try {
-                            FirebaseFirestore.getInstance(databaseId)
+                    val repository = if (activeUserId == "local_guest") {
+                        // Completely offline / local mode - no remote Firebase dependency required
+                        FinanceRepository(null, context.applicationContext)
+                    } else {
+                        try {
+                            val databaseIdRes = context.resources.getIdentifier("firestore_database_id", "string", context.packageName)
+                            val databaseId = if (databaseIdRes != 0) context.getString(databaseIdRes) else "ai-studio-android-finanzas-cc0cfb4f-7207-4923-ae50-256f4126d7eb"
+                            val db = try {
+                                FirebaseFirestore.getInstance(databaseId)
+                            } catch (e: Exception) {
+                                FirebaseFirestore.getInstance()
+                            }
+                            FinanceRepository(db, context.applicationContext)
                         } catch (e: Exception) {
-                            FirebaseFirestore.getInstance()
+                            FinanceRepository(null, context.applicationContext)
                         }
-                        FinanceRepository(db, context.applicationContext)
-                    } catch (e: Exception) {
-                        // Fallback repository for guest mode when Firebase project is missing/uninitialized
-                        FinanceRepository(context.applicationContext)
                     }
                     FinanceViewModel(repository, activeUserId)
                 }

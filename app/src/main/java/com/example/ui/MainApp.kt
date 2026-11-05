@@ -106,7 +106,13 @@ fun MainApp(
     var showTransactionsScreen by remember { mutableStateOf(false) }
     var showSignOutConfirm by remember { mutableStateOf(false) }
     var showProfileSettingsDialog by remember { mutableStateOf(false) }
-    val activeFirebaseUser = remember { FirebaseAuth.getInstance().currentUser }
+    val activeFirebaseUser = remember {
+        try {
+            FirebaseAuth.getInstance().currentUser
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     // Dialog state
     var showCurrencySettingsDialog by remember { mutableStateOf(false) }

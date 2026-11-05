@@ -492,11 +492,13 @@ class FinanceRepository(
         _localTemplates.value = _localTemplates.value.map {
             if (it.id == templateId) it.copy(upvotes = it.upvotes + 1) else it
         }
-        try {
-            firestore.collection("market_templates").document(templateId)
-                .update("upvotes", FieldValue.increment(1)).await()
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed upvoting in cloud", e)
+        if (db != null) {
+            try {
+                firestore.collection("market_templates").document(templateId)
+                    .update("upvotes", FieldValue.increment(1)).await()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed upvoting in cloud", e)
+            }
         }
     }
 
@@ -619,8 +621,12 @@ class FinanceRepository(
     }
 
     suspend fun deleteCloudBackup(userId: String, backupId: String) {
-        if (!isGuest(userId)) {
-            firestore.collection("users").document(userId).collection("backups").document(backupId).delete().await()
+        if (!isGuest(userId) && db != null) {
+            try {
+                firestore.collection("users").document(userId).collection("backups").document(backupId).delete().await()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed deleting cloud backup", e)
+            }
         }
     }
 }

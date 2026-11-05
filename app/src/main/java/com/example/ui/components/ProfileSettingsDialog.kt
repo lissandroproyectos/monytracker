@@ -47,6 +47,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.data.currency.AppCurrency
 import com.example.data.update.AppUpdateManager
+import androidx.compose.runtime.remember
 import com.example.ui.theme.AccentRed
 import com.example.ui.theme.EmeraldDark
 import com.example.ui.theme.EmeraldLight
@@ -67,7 +68,13 @@ fun ProfileSettingsDialog(
     onSignOutClick: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val firebaseUser = FirebaseAuth.getInstance().currentUser
+    val firebaseUser = remember {
+        try {
+            FirebaseAuth.getInstance().currentUser
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -124,14 +131,22 @@ fun ProfileSettingsDialog(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
+                            val userName = firebaseUser?.displayName
+                            val profileTitle = if (!userName.isNullOrBlank()) {
+                                userName
+                            } else if (firebaseUser != null) {
+                                "Usuario de Google"
+                            } else {
+                                "Modo Local (Sin Cuenta)"
+                            }
                             Text(
-                                text = firebaseUser?.displayName?.takeIf { it.isNotBlank() } ?: "Usuario de Google",
+                                text = profileTitle,
                                 fontWeight = FontWeight.Bold,
                                 color = TextPrimaryDark,
                                 style = MaterialTheme.typography.titleSmall
                             )
                             Text(
-                                text = firebaseUser?.email ?: "Modo Local (Sin Cuenta)",
+                                text = firebaseUser?.email ?: "Datos guardados en tu dispositivo",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = EmeraldLight
                             )
