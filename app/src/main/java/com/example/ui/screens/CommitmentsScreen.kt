@@ -22,16 +22,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreditCard
-import androidx.compose.material.icons.filled.Store
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -51,7 +57,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.currency.AppCurrency
 import com.example.data.model.CommitmentStatus
 import com.example.data.model.ExpenseCommitment
-import com.example.data.model.PaymentMode
 import com.example.ui.FinanceViewModel
 import com.example.ui.components.AddCommitmentDialog
 import com.example.ui.components.CommitmentCard
@@ -65,36 +70,69 @@ import com.example.ui.theme.EmeraldPrimary
 import com.example.ui.theme.NavySurface
 import com.example.ui.theme.SlateBackground
 import com.example.ui.theme.SlateCard
+import com.example.ui.theme.SlateCardLight
 import com.example.ui.theme.TextPrimaryDark
 import com.example.ui.theme.TextSecondaryDark
+
+enum class CommitmentSortOption(val displayName: String) {
+    START_DATE_DESC("Fecha Inicio (Reciente primero)"),
+    START_DATE_ASC("Fecha Inicio (Antigua primero)"),
+    REMAINING_DESC("Mayor Pago Pendiente"),
+    REMAINING_ASC("Menor Pago Pendiente"),
+    PAID_DESC("Mayor Pago Realizado"),
+    NAME_ASC("Nombre (A-Z)")
+}
 
 @Composable
 fun CommitmentsScreen(
     viewModel: FinanceViewModel,
     onViewInstallments: (ExpenseCommitment) -> Unit,
-    onOpenDebtTypes: () -> Unit,
+    onOpenDebtTypes: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val commitments by viewModel.commitments.collectAsStateWithLifecycle()
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val health by viewModel.financialHealth.collectAsStateWithLifecycle()
     val rates by viewModel.exchangeRates.collectAsStateWithLifecycle()
-    val templates by viewModel.marketplaceTemplates.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
 
     var filterType by remember { mutableStateOf("DEBTS") } // DEBTS, FIXED, ALL, PAID_OFF
+    var searchQuery by remember { mutableStateOf("") }
+    var sortOption by remember { mutableStateOf(CommitmentSortOption.START_DATE_DESC) }
+    var sortDropdownExpanded by remember { mutableStateOf(false) }
+
     var showAddDialog by remember { mutableStateOf(false) }
     var commitmentToEdit by remember { mutableStateOf<ExpenseCommitment?>(null) }
     var commitmentToDelete by remember { mutableStateOf<ExpenseCommitment?>(null) }
     var commitmentToPay by remember { mutableStateOf<ExpenseCommitment?>(null) }
     var commitmentToShare by remember { mutableStateOf<ExpenseCommitment?>(null) }
 
-    val filteredCommitments = commitments.filter { comm ->
-        when (filterType) {
-            "DEBTS" -> !comm.isFixedExpense && comm.status == CommitmentStatus.ACTIVE.name
-            "FIXED" -> comm.isFixedExpense && comm.status == CommitmentStatus.ACTIVE.name
-            "PAID_OFF" -> comm.status == CommitmentStatus.PAID_OFF.name
-            else -> true
+    val filteredAndSortedCommitments = remember(commitments, filterType, searchQuery, sortOption) {
+        commitments.filter { comm ->
+            val matchesFilter = when (filterType) {
+                "DEBTS" -> !comm.isFixedExpense && comm.status == CommitmentStatus.ACTIVE.name
+                "FIXED" -> comm.isFixedExpense && comm.status == CommitmentStatus.ACTIVE.name
+                "PAID_OFF" -> comm.status == CommitmentStatus.PAID_OFF.name
+                else -> true
+            }
+            val matchesSearch = searchQuery.isBlank() ||
+                comm.title.contains(searchQuery, ignoreCase = true) ||
+                comm.category.contains(searchQuery, ignoreCase = true)
+
+            matchesFilter && matchesSearch
+        }.sortedWith { c1, c2 ->
+            when (sortOption) {
+                CommitmentSortOption.START_DATE_DESC -> c2.startDate.compareTo(c1.startDate)
+                CommitmentSortOption.START_DATE_ASC -> c1.startDate.compareTo(c2.startDate)
+                CommitmentSortOption.REMAINING_DESC -> c2.remainingAmount.compareTo(c1.remainingAmount)
+                CommitmentSortOption.REMAINING_ASC -> c1.remainingAmount.compareTo(c2.remainingAmount)
+                CommitmentSortOption.PAID_DESC -> {
+                    val paid1 = (c1.totalAmount - c1.remainingAmount).coerceAtLeast(0.0)
+                    val paid2 = (c2.totalAmount - c2.remainingAmount).coerceAtLeast(0.0)
+                    paid2.compareTo(paid1)
+                }
+                CommitmentSortOption.NAME_ASC -> c1.title.lowercase().compareTo(c2.title.lowercase())
+            }
         }
     }
 
@@ -126,9 +164,9 @@ fun CommitmentsScreen(
                 .fillMaxSize()
                 .padding(padding),
             contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Header Hero Banner with clear separation of Gastos Fijos vs Deudas Temporales
+            // Header Hero Banner
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -136,32 +174,18 @@ fun CommitmentsScreen(
                     colors = CardDefaults.cardColors(containerColor = SlateCard)
                 ) {
                     Column(modifier = Modifier.padding(18.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(
-                                    text = "Control Financiero",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = TextSecondaryDark
-                                )
-                                Text(
-                                    text = "Gastos Fijos vs Deudas",
-                                    style = MaterialTheme.typography.headlineMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextPrimaryDark
-                                )
-                            }
-                            OutlinedButton(
-                                onClick = onOpenDebtTypes,
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(Icons.Default.CreditCard, contentDescription = null, modifier = Modifier.size(16.dp), tint = EmeraldLight)
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Tipos de Deudas", color = EmeraldLight, fontSize = 11.sp)
-                            }
+                        Column {
+                            Text(
+                                text = "Control Financiero",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextSecondaryDark
+                            )
+                            Text(
+                                text = "Gastos Fijos vs Deudas",
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimaryDark
+                            )
                         }
 
                         Spacer(modifier = Modifier.height(14.dp))
@@ -233,7 +257,76 @@ fun CommitmentsScreen(
                 }
             }
 
-            // Segment Tabs
+            // Search & Sort Bar
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Buscar por título o categoría...", fontSize = 13.sp) },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondaryDark) },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Limpiar", tint = TextSecondaryDark)
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("commitments_search_input"),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    // Sort Dropdown Button
+                    Box {
+                        Surface(
+                            modifier = Modifier
+                                .clickable { sortDropdownExpanded = true }
+                                .testTag("commitments_sort_btn"),
+                            shape = RoundedCornerShape(12.dp),
+                            color = SlateCard
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Sort, contentDescription = "Ordenar", tint = EmeraldLight, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Ordenar", style = MaterialTheme.typography.labelMedium, color = EmeraldLight, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        DropdownMenu(
+                            expanded = sortDropdownExpanded,
+                            onDismissRequest = { sortDropdownExpanded = false }
+                        ) {
+                            CommitmentSortOption.entries.forEach { option ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = option.displayName,
+                                            fontWeight = if (sortOption == option) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (sortOption == option) EmeraldLight else TextPrimaryDark
+                                        )
+                                    },
+                                    onClick = {
+                                        sortOption = option
+                                        sortDropdownExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Segment Tabs (Deudas, Gastos Fijos, Saldados, Todos)
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val filterOptions = listOf(
@@ -263,7 +356,7 @@ fun CommitmentsScreen(
                 }
             }
 
-            if (filteredCommitments.isEmpty()) {
+            if (filteredAndSortedCommitments.isEmpty()) {
                 item {
                     Surface(
                         color = SlateCard.copy(alpha = 0.5f),
@@ -275,7 +368,9 @@ fun CommitmentsScreen(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                text = if (filterType == "DEBTS") "No tienes deudas activas registradas" else "No hay compromisos en esta sección",
+                                text = if (searchQuery.isNotEmpty()) "No se encontraron compromisos que coincidan con \"$searchQuery\""
+                                else if (filterType == "DEBTS") "No tienes deudas activas registradas"
+                                else "No hay compromisos en esta sección",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = TextSecondaryDark
                             )
@@ -291,21 +386,18 @@ fun CommitmentsScreen(
                     }
                 }
             } else {
-                items(filteredCommitments, key = { it.id }) { comm ->
+                items(filteredAndSortedCommitments, key = { it.id }) { comm ->
                     CommitmentCard(
                         commitment = comm,
                         onEditClick = { commitmentToEdit = comm },
                         onViewInstallmentsClick = { commitmentToEdit = comm },
                         onPayClick = { commitmentToPay = comm },
                         onShareAsTemplateClick = { commitmentToShare = comm },
+                        onDeleteClick = { commitmentToDelete = comm },
                         displayCurrency = health.displayCurrency,
                         rates = rates
                     )
                 }
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(60.dp))
             }
         }
     }
@@ -313,21 +405,24 @@ fun CommitmentsScreen(
     if (showAddDialog) {
         AddCommitmentDialog(
             accounts = accounts,
-            templates = templates,
+            templates = emptyList(),
             customCategories = settings.customExpenseCategories,
-            initialIsFixed = filterType == "FIXED",
+            initialIsFixed = (filterType == "FIXED"),
             onDismiss = { showAddDialog = false },
-            onSave = { newCommitment -> viewModel.addCommitment(newCommitment) },
+            onSave = { newCommitment ->
+                viewModel.addCommitment(newCommitment)
+                showAddDialog = false
+            },
             onCreateCategory = { name, isInc -> viewModel.addCustomCategory(name, isInc) }
         )
     }
 
-    if (commitmentToEdit != null) {
+    commitmentToEdit?.let { comm ->
         AddCommitmentDialog(
             accounts = accounts,
-            templates = templates,
+            templates = emptyList(),
             customCategories = settings.customExpenseCategories,
-            commitmentToEdit = commitmentToEdit,
+            commitmentToEdit = comm,
             onDismiss = { commitmentToEdit = null },
             onSave = { updated ->
                 viewModel.updateCommitment(updated)
@@ -335,25 +430,26 @@ fun CommitmentsScreen(
             },
             onCreateCategory = { name, isInc -> viewModel.addCustomCategory(name, isInc) },
             onDelete = {
-                commitmentToEdit?.let { viewModel.deleteCommitment(it.id) }
+                viewModel.deleteCommitment(comm.id)
                 commitmentToEdit = null
             }
         )
     }
 
-    if (commitmentToDelete != null) {
+    commitmentToDelete?.let { comm ->
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { commitmentToDelete = null },
             title = { Text("¿Eliminar compromiso?", fontWeight = FontWeight.Bold) },
-            text = { Text("Se eliminará '${commitmentToDelete?.title}' y su cronograma de cuotas.") },
+            text = { Text("Se eliminará '${comm.title}' y su historial.") },
             confirmButton = {
-                androidx.compose.material3.TextButton(
+                Button(
                     onClick = {
-                        commitmentToDelete?.let { viewModel.deleteCommitment(it.id) }
+                        viewModel.deleteCommitment(comm.id)
                         commitmentToDelete = null
-                    }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
                 ) {
-                    Text("Eliminar", color = com.example.ui.theme.AccentRed)
+                    Text("Eliminar", color = Color.White)
                 }
             },
             dismissButton = {

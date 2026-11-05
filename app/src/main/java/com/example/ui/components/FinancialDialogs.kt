@@ -2112,6 +2112,125 @@ fun PaymentDayConfigSection(state: AddCommitmentState) {
     }
 }
 
+@Composable
+fun CalculatedInstallmentsPreviewCard(state: AddCommitmentState) {
+    if (state.totalAmount <= 0) return
+    val schedule = if (state.isFixedExpense) state.computeActiveFixedSchedule() else state.computeActiveSchedule()
+    if (schedule.isEmpty()) return
+
+    val currSymbol = state.selectedCurrency.symbol
+    val isInstallments = state.hasInstallments || state.isFixedExpense
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("installments_preview_card"),
+        colors = CardDefaults.cardColors(containerColor = SlateCardLight),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, EmeraldPrimary.copy(alpha = 0.35f))
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.CalendarMonth,
+                        contentDescription = null,
+                        tint = EmeraldLight,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = if (isInstallments) "Proyección de Cuotas Calculadas" else "Resumen de Pago Único",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimaryDark
+                    )
+                }
+
+                Surface(
+                    color = EmeraldPrimary.copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        text = if (isInstallments) "${schedule.size} cuotas" else "1 pago",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = EmeraldLight,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
+
+            Text(
+                text = "Frecuencia: ${state.frequency.displayName}",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondaryDark
+            )
+
+            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+
+            val countToShow = if (schedule.size <= 5) schedule.size else 4
+            val visibleInstallments = schedule.take(countToShow)
+            val hasMore = schedule.size > 5
+
+            visibleInstallments.forEach { inst ->
+                val dateStr = SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("es-ES")).format(inst.dueDate.toDate())
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Cuota #${inst.number} (${dateStr}):",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextPrimaryDark
+                    )
+                    Text(
+                        text = formatCurrency(inst.amount, currSymbol),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = EmeraldLight
+                    )
+                }
+            }
+
+            if (hasMore) {
+                val lastInst = schedule.last()
+                val lastDateStr = SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("es-ES")).format(lastInst.dueDate.toDate())
+                Text(
+                    text = "• • • (${schedule.size - 5} cuotas intermedias)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondaryDark
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Cuota #${lastInst.number} (${lastDateStr}):",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextPrimaryDark
+                    )
+                    Text(
+                        text = formatCurrency(lastInst.amount, currSymbol),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = EmeraldLight
+                    )
+                }
+            }
+        }
+    }
+}
+
 // Dialog to add Fixed Expense or Temporary Debt (Cuotas / Créditos)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -2286,42 +2405,6 @@ fun AddCommitmentDialog(
                                     color = if (state.isFixedExpense) NavySurface.copy(alpha = 0.8f) else TextSecondaryDark
                                 )
                             }
-                        }
-                    }
-                }
-
-                // Button to choose or customize debt type
-                if (!state.isFixedExpense && commitmentToEdit == null) {
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .border(1.dp, EmeraldLight.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                            .clickable { state.showTemplatePicker = true }
-                            .testTag("open_marketplace_picker_btn"),
-                        color = SlateCardLight
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.CreditCard, contentDescription = null, tint = EmeraldLight)
-                            Spacer(Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "⚙️ Elegir / Personalizar Tipo de Deuda",
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextPrimaryDark,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                                Text(
-                                    "Configura frecuencia, interés % y reglas de pago",
-                                    color = TextSecondaryDark,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontSize = 11.sp
-                                )
-                            }
-                            Icon(Icons.Default.ArrowForward, contentDescription = null, tint = TextSecondaryDark, modifier = Modifier.size(16.dp))
                         }
                     }
                 }
@@ -2915,6 +2998,8 @@ fun AddCommitmentDialog(
                         }
                     }
                 }
+
+                CalculatedInstallmentsPreviewCard(state = state)
 
                 // 5. Category
                 val combinedCategories = (CATEGORY_EXPENSES + customCategories).distinct()
