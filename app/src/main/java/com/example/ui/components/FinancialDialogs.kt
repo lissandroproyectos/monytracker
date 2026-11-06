@@ -2118,6 +2118,7 @@ fun CalculatedInstallmentsPreviewCard(state: AddCommitmentState) {
     val schedule = if (state.isFixedExpense) state.computeActiveFixedSchedule() else state.computeActiveSchedule()
     if (schedule.isEmpty()) return
 
+    val context = LocalContext.current
     val currSymbol = state.selectedCurrency.symbol
     val isInstallments = state.hasInstallments || state.isFixedExpense
 
@@ -2130,8 +2131,8 @@ fun CalculatedInstallmentsPreviewCard(state: AddCommitmentState) {
         border = BorderStroke(1.dp, EmeraldPrimary.copy(alpha = 0.35f))
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -2146,12 +2147,20 @@ fun CalculatedInstallmentsPreviewCard(state: AddCommitmentState) {
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = if (isInstallments) "Proyección de Cuotas Calculadas" else "Resumen de Pago Único",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimaryDark
-                    )
+                    Column {
+                        Text(
+                            text = if (isInstallments) "Cronograma de Cuotas Planificadas" else "Resumen de Pago Único",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimaryDark
+                        )
+                        Text(
+                            text = "Toca la fecha para editarla (recalcula en cascada)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = EmeraldLight,
+                            fontSize = 10.sp
+                        )
+                    }
                 }
 
                 Surface(
@@ -2168,63 +2177,90 @@ fun CalculatedInstallmentsPreviewCard(state: AddCommitmentState) {
                 }
             }
 
-            Text(
-                text = "Frecuencia: ${state.frequency.displayName}",
-                style = MaterialTheme.typography.labelSmall,
-                color = TextSecondaryDark
-            )
-
             HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
 
-            val countToShow = if (schedule.size <= 5) schedule.size else 4
-            val visibleInstallments = schedule.take(countToShow)
-            val hasMore = schedule.size > 5
-
-            visibleInstallments.forEach { inst ->
-                val dateStr = SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("es-ES")).format(inst.dueDate.toDate())
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+            schedule.forEachIndexed { idx, inst ->
+                val dateFmt = SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("es-ES")).format(inst.dueDate.toDate())
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = SlateBackground,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        text = "Cuota #${inst.number} (${dateStr}):",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextPrimaryDark
-                    )
-                    Text(
-                        text = formatCurrency(inst.amount, currSymbol),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Bold,
-                        color = EmeraldLight
-                    )
-                }
-            }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Cuota #${inst.number}",
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextPrimaryDark
+                        )
 
-            if (hasMore) {
-                val lastInst = schedule.last()
-                val lastDateStr = SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("es-ES")).format(lastInst.dueDate.toDate())
-                Text(
-                    text = "• • • (${schedule.size - 5} cuotas intermedias)",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondaryDark
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Cuota #${lastInst.number} (${lastDateStr}):",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextPrimaryDark
-                    )
-                    Text(
-                        text = formatCurrency(lastInst.amount, currSymbol),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Bold,
-                        color = EmeraldLight
-                    )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = EmeraldDark.copy(alpha = 0.35f),
+                            modifier = Modifier.clickable {
+                                showPlatformDatePicker(context, inst.dueDate.toDate()) { newDate ->
+                                    val cascaded = cascadeRecalculateInstallments(
+                                        schedule = schedule,
+                                        changedIndex = idx,
+                                        newDate = newDate,
+                                        frequency = state.frequency,
+                                        customDays = state.customDays
+                                    )
+                                    if (state.isFixedExpense) {
+                                        state.customFixedInstallments = cascaded
+                                    } else {
+                                        state.customInstallments = cascaded
+                                    }
+                                }
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.EditCalendar, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(dateFmt, style = MaterialTheme.typography.labelSmall, color = EmeraldLight, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        Text(
+                            text = formatCurrency(inst.amount, currSymbol),
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextPrimaryDark
+                        )
+
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (inst.isPaid) EmeraldLight.copy(alpha = 0.2f) else AccentAmber.copy(alpha = 0.2f),
+                            modifier = Modifier.clickable {
+                                val updated = schedule.toMutableList()
+                                val newPaid = !inst.isPaid
+                                updated[idx] = inst.copy(isPaid = newPaid, paidDate = if (newPaid) Timestamp.now() else null)
+                                if (state.isFixedExpense) {
+                                    state.customFixedInstallments = updated
+                                } else {
+                                    state.customInstallments = updated
+                                }
+                            }
+                        ) {
+                            Text(
+                                text = if (inst.isPaid) "✓ Pagada" else "Pendiente",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (inst.isPaid) EmeraldLight else AccentAmber,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
                 }
             }
         }

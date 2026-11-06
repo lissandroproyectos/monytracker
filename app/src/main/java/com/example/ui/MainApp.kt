@@ -400,7 +400,8 @@ fun MainApp(
                 viewModel.toggleInstallment(comm, number, isPaid, account)
             },
             onEdit = { commitmentToEditInDialog = comm },
-            onDelete = { commitmentToDeleteInDialog = comm }
+            onDelete = { commitmentToDeleteInDialog = comm },
+            onUpdateCommitment = { updated -> viewModel.updateCommitment(updated) }
         )
     }
 

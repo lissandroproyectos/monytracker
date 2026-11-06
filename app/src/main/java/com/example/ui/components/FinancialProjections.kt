@@ -37,6 +37,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.filled.EditCalendar
+import androidx.compose.ui.platform.LocalContext
+import com.example.data.model.Frequency
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -279,10 +282,15 @@ fun InstallmentsScheduleDialog(
     onDismiss: () -> Unit,
     onToggleInstallment: (Long, Boolean, Account?) -> Unit,
     onEdit: (() -> Unit)? = null,
-    onDelete: (() -> Unit)? = null
+    onDelete: (() -> Unit)? = null,
+    onUpdateCommitment: ((ExpenseCommitment) -> Unit)? = null
 ) {
+    val context = LocalContext.current
     val installments = commitment.getProjectedInstallments()
     val commCurrency = AppCurrency.fromCode(commitment.currency)
+    val freqEnum = remember(commitment.frequency) {
+        Frequency.entries.find { it.name == commitment.frequency } ?: Frequency.MONTHLY
+    }
     var selectedDebitAccountId by remember { mutableStateOf(accounts.firstOrNull()?.id ?: "") }
     val selectedAccount = accounts.find { it.id == selectedDebitAccountId }
 
@@ -396,16 +404,28 @@ fun InstallmentsScheduleDialog(
                     }
                 }
 
-                Text(
-                    text = "Cuotas proyectadas (${installments.size}):",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextPrimaryDark
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Cuotas proyectadas (${installments.size}):",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimaryDark
+                    )
+                    Text(
+                        text = "Toca fecha para editar en cascada",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = EmeraldLight,
+                        fontSize = 10.sp
+                    )
+                }
 
                 // List of installments
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    installments.forEach { inst ->
+                    installments.forEachIndexed { idx, inst ->
                         val amountInDisp = rates.convert(inst.amount, commCurrency, displayCurrency)
                         Surface(
                             color = if (inst.isPaid) EmeraldDark.copy(alpha = 0.2f) else SlateBackground,
@@ -436,12 +456,46 @@ fun InstallmentsScheduleDialog(
                                             color = if (inst.isPaid) EmeraldLight else TextPrimaryDark,
                                             fontSize = 14.sp
                                         )
-                                        Text(
-                                            text = "Vence: ${formatDate(inst.dueDate.toDate())}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = TextSecondaryDark,
-                                            fontSize = 11.sp
-                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = EmeraldDark.copy(alpha = 0.35f),
+                                            modifier = Modifier.clickable {
+                                                showPlatformDatePicker(context, inst.dueDate.toDate()) { newDate ->
+                                                    val cascaded = cascadeRecalculateInstallments(
+                                                        schedule = installments,
+                                                        changedIndex = idx,
+                                                        newDate = newDate,
+                                                        frequency = freqEnum,
+                                                        customDays = commitment.customDays
+                                                    )
+                                                    val updatedCommitment = commitment.copy(
+                                                        installments = cascaded.map { it.toMap() }
+                                                    )
+                                                    onUpdateCommitment?.invoke(updatedCommitment)
+                                                }
+                                            }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.EditCalendar,
+                                                    contentDescription = "Editar fecha",
+                                                    tint = EmeraldLight,
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                                Spacer(Modifier.width(4.dp))
+                                                Text(
+                                                    text = formatDate(inst.dueDate.toDate()),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = EmeraldLight,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 10.sp
+                                                )
+                                            }
+                                        }
                                     }
                                 }
 
