@@ -2561,52 +2561,6 @@ fun AddCommitmentDialog(
                 if (!state.isFixedExpense) {
                     // DEUDA TEMPORAL / CRÉDITO
 
-                    // Inicial (opcional)
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = SlateCardLight,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth().clickable { state.hasDownPayment = !state.hasDownPayment }
-                            ) {
-                                Checkbox(
-                                    checked = state.hasDownPayment,
-                                    onCheckedChange = { state.hasDownPayment = it },
-                                    modifier = Modifier.testTag("has_down_payment_checkbox")
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "¿Pagaste o pagarás una cuota inicial?",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = TextPrimaryDark
-                                    )
-                                    Text(
-                                        text = if (state.hasDownPayment) "Se descuenta antes de financiar cuotas" else "Sin inicial (100% financiado)",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = if (state.hasDownPayment) EmeraldLight else TextSecondaryDark,
-                                        fontSize = 11.sp
-                                    )
-                                }
-                            }
-                            if (state.hasDownPayment) {
-                                Spacer(Modifier.height(8.dp))
-                                OutlinedTextField(
-                                    value = state.downPaymentText,
-                                    onValueChange = { state.downPaymentText = it },
-                                    label = { Text("Monto de la Cuota Inicial") },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                    modifier = Modifier.fillMaxWidth().testTag("down_payment_input"),
-                                    singleLine = true
-                                )
-                            }
-                        }
-                    }
-
                     // Cuotas (opcional via Checkbox)
                     Surface(
                         shape = RoundedCornerShape(12.dp),
@@ -2735,6 +2689,53 @@ fun AddCommitmentDialog(
                                 } else {
                                     Spacer(Modifier.height(8.dp))
                                     PaymentDayConfigSection(state = state)
+                                }
+
+                                Spacer(Modifier.height(10.dp))
+                                // Cuota Inicial opcional dentro de la sección de cuotas
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = SlateBackground,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.fillMaxWidth().clickable { state.hasDownPayment = !state.hasDownPayment }
+                                        ) {
+                                            Checkbox(
+                                                checked = state.hasDownPayment,
+                                                onCheckedChange = { state.hasDownPayment = it },
+                                                modifier = Modifier.testTag("has_down_payment_checkbox")
+                                            )
+                                            Spacer(Modifier.width(8.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "¿Pagaste o pagarás una cuota inicial?",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = TextPrimaryDark
+                                                )
+                                                Text(
+                                                    text = if (state.hasDownPayment) "Se descuenta antes de financiar cuotas" else "Sin inicial (100% financiado)",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = if (state.hasDownPayment) EmeraldLight else TextSecondaryDark,
+                                                    fontSize = 11.sp
+                                                )
+                                            }
+                                        }
+                                        if (state.hasDownPayment) {
+                                            Spacer(Modifier.height(8.dp))
+                                            OutlinedTextField(
+                                                value = state.downPaymentText,
+                                                onValueChange = { state.downPaymentText = it },
+                                                label = { Text("Monto de la Cuota Inicial") },
+                                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                                modifier = Modifier.fillMaxWidth().testTag("down_payment_input"),
+                                                singleLine = true
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -56,23 +56,32 @@ service cloud.firestore {
 
     function isValidCommitment(data) {
       return isValidString(data.title, 1, 100) &&
-             data.totalAmount is number && data.totalAmount > 0 &&
+             data.totalAmount is number && data.totalAmount >= 0 &&
              data.remainingAmount is number && data.remainingAmount >= 0 &&
              data.paymentMode in ['FULL', 'PARTIAL', 'INSTALLMENTS'] &&
              isValidString(data.category, 1, 50) &&
              data.status in ['ACTIVE', 'PAID_OFF', 'OVERDUE'] &&
              (!('currency' in data) || (data.currency is string && data.currency.size() <= 10)) &&
              (!('isFixedExpense' in data) || data.isFixedExpense is bool) &&
+             (!('fixedExpense' in data) || data.fixedExpense is bool) &&
              (!('startDate' in data) || data.startDate is timestamp) &&
              (!('endDate' in data) || data.endDate is timestamp) &&
              (!('totalInstallments' in data) || (data.totalInstallments is int && data.totalInstallments >= 1)) &&
              (!('paidInstallments' in data) || (data.paidInstallments is int && data.paidInstallments >= 0)) &&
              (!('installmentAmount' in data) || (data.installmentAmount is number && data.installmentAmount >= 0)) &&
-             (!('frequency' in data) || data.frequency in ['MONTHLY', 'BIWEEKLY', 'WEEKLY', 'CUSTOM']) &&
+             (!('downPayment' in data) || (data.downPayment is number && data.downPayment >= 0)) &&
+             (!('interestRate' in data) || (data.interestRate is number && data.interestRate >= 0)) &&
+             (!('isAnnualInterest' in data) || data.isAnnualInterest is bool) &&
+             (!('annualInterest' in data) || data.annualInterest is bool) &&
+             (!('customDays' in data) || (data.customDays is int && data.customDays >= 1)) &&
+             (!('frequency' in data) || (data.frequency is string && data.frequency.size() <= 30)) &&
+             (!('paymentDayOfMonth' in data) || data.paymentDayOfMonth is int) &&
+             (!('secondPaymentDay' in data) || data.secondPaymentDay is int) &&
+             (!('paymentDayOfWeek' in data) || data.paymentDayOfWeek is int) &&
              (!('dueDate' in data) || data.dueDate is timestamp) &&
              (!('accountId' in data) || (data.accountId is string && data.accountId.size() <= 100)) &&
              (!('notes' in data) || (data.notes is string && data.notes.size() <= 500)) &&
-             (!('installments' in data) || (data.installments is list && data.installments.size() <= 60));
+             (!('installments' in data) || (data.installments is list && data.installments.size() <= 120));
     }
 
     function isValidPayment(data) {
