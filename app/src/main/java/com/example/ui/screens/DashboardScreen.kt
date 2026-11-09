@@ -38,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -94,6 +95,7 @@ fun DashboardScreen(
     val projectedPoints by viewModel.projectedCashflow.collectAsStateWithLifecycle()
     val projectionMonths by viewModel.projectionMonths.collectAsStateWithLifecycle()
 
+    val visibleAccounts = remember(accounts) { accounts.filter { !it.isPlanStartAccount } }
     val activeCommitments = commitments.filter { it.status == "ACTIVE" }
     val recentTransactions = transactions.take(4)
 
@@ -151,82 +153,82 @@ fun DashboardScreen(
         }
 
         // Accounts section
-        if (accounts.isEmpty()) {
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth().testTag("starter_accounts_card"),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = SlateCard)
+        if (visibleAccounts.isEmpty()) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().testTag("starter_accounts_card"),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = SlateCard)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(EmeraldLight.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(EmeraldLight.copy(alpha = 0.2f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = EmeraldLight)
-                        }
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "Configura tus cuentas multi-moneda",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimaryDark
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Gestiona Bolívares (Pago Móvil/Banco), Dólares BCV, Cripto USDT y Fondo de Ahorro.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondaryDark,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(14.dp))
-                        Button(
-                            onClick = { viewModel.createInitialAccountsIfEmpty() },
-                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.testTag("create_starter_accounts_btn")
-                        ) {
-                            Text("Generar Cuentas Recomendadas", fontWeight = FontWeight.SemiBold)
-                        }
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = EmeraldLight)
                     }
-                }
-            }
-        } else {
-            item {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Configura tus cuentas multi-moneda",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimaryDark
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Gestiona Bolívares (Pago Móvil/Banco), Dólares BCV, Cripto USDT y Fondo de Ahorro.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondaryDark,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Button(
+                        onClick = { viewModel.createInitialAccountsIfEmpty() },
+                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.testTag("create_starter_accounts_btn")
                     ) {
-                        Text(
-                            text = "Mis Cuentas (${accounts.size})",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimaryDark
-                        )
-                        TextButton(onClick = onNavigateToAccounts) {
-                            Text("Ver todas", color = EmeraldLight)
-                            Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp), tint = EmeraldLight)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(accounts, key = { it.id }) { acc ->
-                            AccountMiniCard(account = acc, onClick = onNavigateToAccounts)
-                        }
+                        Text("Generar Cuentas Recomendadas", fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
         }
+    } else {
+        item {
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Mis Cuentas (${visibleAccounts.size})",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimaryDark
+                    )
+                    TextButton(onClick = onNavigateToAccounts) {
+                        Text("Ver todas", color = EmeraldLight)
+                        Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp), tint = EmeraldLight)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(visibleAccounts, key = { it.id }) { acc ->
+                        AccountMiniCard(account = acc, onClick = onNavigateToAccounts)
+                    }
+                }
+            }
+        }
+    }
 
         // Active Commitments & Cuotas Section
         if (activeCommitments.isNotEmpty()) {

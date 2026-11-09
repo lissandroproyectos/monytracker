@@ -196,7 +196,8 @@ data class ExpenseCommitment(
                 val cal = startCal.clone() as Calendar
                 val curDow = cal.get(Calendar.DAY_OF_WEEK)
                 val diff = (dayWeek - curDow + 7) % 7
-                cal.add(Calendar.DAY_OF_YEAR, diff)
+                val initialOffset = if (diff == 0) 7 else diff
+                cal.add(Calendar.DAY_OF_YEAR, initialOffset)
                 for (i in 1..count) {
                     val dueCal = cal.clone() as Calendar
                     dueCal.add(Calendar.WEEK_OF_YEAR, i - 1)
@@ -216,7 +217,7 @@ data class ExpenseCommitment(
             Frequency.CASHEA -> {
                 for (i in 1..count) {
                     val dueCal = startCal.clone() as Calendar
-                    dueCal.add(Calendar.DAY_OF_YEAR, (i - 1) * 14)
+                    dueCal.add(Calendar.DAY_OF_YEAR, i * 14)
                     if (endDate != null && dueCal.time.after(endDate.toDate())) break
                     val isAlreadyPaid = i <= paidInstallments
                     list.add(
@@ -236,8 +237,13 @@ data class ExpenseCommitment(
                 val cal = startCal.clone() as Calendar
                 var curMonth = cal.get(Calendar.MONTH)
                 var curYear = cal.get(Calendar.YEAR)
-                var useSecond = cal.get(Calendar.DAY_OF_MONTH) > d1
-                if (cal.get(Calendar.DAY_OF_MONTH) > d2) {
+                val curDay = cal.get(Calendar.DAY_OF_MONTH)
+                var useSecond: Boolean
+                if (curDay < d1) {
+                    useSecond = false
+                } else if (curDay < d2) {
+                    useSecond = true
+                } else {
                     useSecond = false
                     curMonth++
                     if (curMonth > 11) { curMonth = 0; curYear++ }
@@ -278,7 +284,8 @@ data class ExpenseCommitment(
                 val cal = startCal.clone() as Calendar
                 var curMonth = cal.get(Calendar.MONTH)
                 var curYear = cal.get(Calendar.YEAR)
-                if (cal.get(Calendar.DAY_OF_MONTH) > dayMonth) {
+                val curDay = cal.get(Calendar.DAY_OF_MONTH)
+                if (curDay >= dayMonth) {
                     curMonth++
                     if (curMonth > 11) { curMonth = 0; curYear++ }
                 }
@@ -310,7 +317,7 @@ data class ExpenseCommitment(
             else -> {
                 for (i in 1..count) {
                     val dueCal = startCal.clone() as Calendar
-                    val offset = i - 1
+                    val offset = i
                     when (freq) {
                         Frequency.BIMONTHLY -> {
                             dueCal.add(Calendar.MONTH, offset * 2)

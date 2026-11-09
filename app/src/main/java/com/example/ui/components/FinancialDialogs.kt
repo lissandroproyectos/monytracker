@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -250,314 +252,342 @@ fun AddAccountDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
     ) {
-        Card(
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 10.dp)
-                .testTag("add_account_dialog"),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = SlateCard)
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.6f))
+                .systemBarsPadding()
+                .imePadding()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Column(
+            Card(
                 modifier = Modifier
-                    .padding(20.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.92f)
+                    .testTag("add_account_dialog"),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = SlateCard)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (accountToEdit != null) "Editar Cuenta" else "Nueva Cuenta / Billetera",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimaryDark
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = TextSecondaryDark)
-                    }
-                }
-
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Nombre (ej. Banesco Bs, Efectivo USD, Binance)") },
-                    modifier = Modifier.fillMaxWidth().testTag("account_name_input"),
-                    singleLine = true
-                )
-
-                // Currency Dropdown
-                ExposedDropdownMenuBox(
-                    expanded = currExpanded,
-                    onExpandedChange = { currExpanded = it }
-                ) {
-                    OutlinedTextField(
-                        value = "${selectedCurrency.flagEmoji} ${selectedCurrency.displayName}",
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Moneda de la Cuenta") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = currExpanded) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(
-                        expanded = currExpanded,
-                        onDismissRequest = { currExpanded = false }
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // Pinned Header
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        AppCurrency.entries.forEach { curr ->
-                            DropdownMenuItem(
-                                text = { Text("${curr.flagEmoji} ${curr.displayName}") },
-                                onClick = {
-                                    selectedCurrency = curr
-                                    currExpanded = false
-                                }
-                            )
+                        Text(
+                            text = if (accountToEdit != null) "Editar Cuenta" else "Nueva Cuenta / Billetera",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimaryDark
+                        )
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = TextSecondaryDark)
                         }
                     }
-                }
 
-                // Account Type Dropdown
-                ExposedDropdownMenuBox(
-                    expanded = typeExpanded,
-                    onExpandedChange = { typeExpanded = it }
-                ) {
-                    OutlinedTextField(
-                        value = selectedType.displayName,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Tipo de Cuenta") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = typeExpanded) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(
-                        expanded = typeExpanded,
-                        onDismissRequest = { typeExpanded = false }
-                    ) {
-                        AccountType.entries.forEach { type ->
-                            DropdownMenuItem(
-                                text = { Text(type.displayName) },
-                                onClick = {
-                                    selectedType = type
-                                    if (type == AccountType.SAVINGS) isSavings = true
-                                    typeExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                OutlinedTextField(
-                    value = balanceText,
-                    onValueChange = { balanceText = it },
-                    label = { Text(if (accountToEdit != null) "Saldo Actual (${selectedCurrency.symbol})" else "Saldo Inicial (${selectedCurrency.symbol})") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.fillMaxWidth().testTag("account_balance_input"),
-                    singleLine = true
-                )
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(
-                        checked = isSavings,
-                        onCheckedChange = { isSavings = it }
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Destinar como Fondo de Ahorro / Colchón",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextPrimaryDark
-                    )
-                }
-
-                // Periodic Income Section
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = SlateCardLight),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                    // Scrollable Body
                     Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(
-                                checked = hasPeriodicIncome,
-                                onCheckedChange = { hasPeriodicIncome = it },
-                                modifier = Modifier.testTag("toggle_periodic_income")
+                        OutlinedTextField(
+                            value = name,
+                            onValueChange = { name = it },
+                            label = { Text("Nombre (ej. Banesco Bs, Efectivo USD, Binance)") },
+                            modifier = Modifier.fillMaxWidth().testTag("account_name_input"),
+                            singleLine = true
+                        )
+
+                        // Currency Dropdown
+                        ExposedDropdownMenuBox(
+                            expanded = currExpanded,
+                            onExpandedChange = { currExpanded = it }
+                        ) {
+                            OutlinedTextField(
+                                value = "${selectedCurrency.flagEmoji} ${selectedCurrency.displayName}",
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Moneda de la Cuenta") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = currExpanded) },
+                                modifier = Modifier.menuAnchor().fillMaxWidth()
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Column {
-                                Text(
-                                    text = "¿Recibe dinero periódico en esta cuenta?",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextPrimaryDark
-                                )
-                                Text(
-                                    text = "Sueldo, honorarios, remesas periódicas",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = TextSecondaryDark,
-                                    fontSize = 11.sp
-                                )
+                            ExposedDropdownMenu(
+                                expanded = currExpanded,
+                                onDismissRequest = { currExpanded = false }
+                            ) {
+                                AppCurrency.entries.forEach { curr ->
+                                    DropdownMenuItem(
+                                        text = { Text("${curr.flagEmoji} ${curr.displayName}") },
+                                        onClick = {
+                                            selectedCurrency = curr
+                                            currExpanded = false
+                                        }
+                                    )
+                                }
                             }
                         }
 
-                        if (hasPeriodicIncome) {
+                        // Account Type Dropdown
+                        ExposedDropdownMenuBox(
+                            expanded = typeExpanded,
+                            onExpandedChange = { typeExpanded = it }
+                        ) {
                             OutlinedTextField(
-                                value = periodicIncomeDesc,
-                                onValueChange = { periodicIncomeDesc = it },
-                                label = { Text("Concepto (ej. Nómina Quincenal, Remesa)") },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true
+                                value = selectedType.displayName,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Tipo de Cuenta") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = typeExpanded) },
+                                modifier = Modifier.menuAnchor().fillMaxWidth()
                             )
-
-                            OutlinedTextField(
-                                value = periodicIncomeAmountText,
-                                onValueChange = { periodicIncomeAmountText = it },
-                                label = { Text("Monto periódico (${selectedCurrency.displayName})") },
-                                prefix = { Text("${selectedCurrency.symbol} ") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                modifier = Modifier.fillMaxWidth().testTag("periodic_income_amount_input"),
-                                singleLine = true
-                            )
-
-                            ExposedDropdownMenuBox(
-                                expanded = periodicFreqExpanded,
-                                onExpandedChange = { periodicFreqExpanded = it }
+                            ExposedDropdownMenu(
+                                expanded = typeExpanded,
+                                onDismissRequest = { typeExpanded = false }
                             ) {
-                                val freqLabel = when (periodicFreq) {
-                                    "QUINCENAL" -> "Quincenal (Día 15 y fin de mes)"
-                                    "SEMANAL" -> "Semanal (Cada 7 días)"
-                                    else -> "Mensual (Día fijo de cada mes)"
+                                AccountType.entries.forEach { type ->
+                                    DropdownMenuItem(
+                                        text = { Text(type.displayName) },
+                                        onClick = {
+                                            selectedType = type
+                                            if (type == AccountType.SAVINGS) isSavings = true
+                                            typeExpanded = false
+                                        }
+                                    )
                                 }
-                                OutlinedTextField(
-                                    value = freqLabel,
-                                    onValueChange = {},
-                                    readOnly = true,
-                                    label = { Text("Frecuencia de Cobro") },
-                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = periodicFreqExpanded) },
-                                    modifier = Modifier.menuAnchor().fillMaxWidth()
-                                )
-                                ExposedDropdownMenu(
-                                    expanded = periodicFreqExpanded,
-                                    onDismissRequest = { periodicFreqExpanded = false }
-                                ) {
-                                    listOf(
-                                        "QUINCENAL" to "Quincenal (Día 15 y fin de mes)",
-                                        "MENSUAL" to "Mensual (Día fijo)",
-                                        "SEMANAL" to "Semanal (Cada 7 días)"
-                                    ).forEach { (code, label) ->
-                                        DropdownMenuItem(
-                                            text = { Text(label) },
-                                            onClick = {
-                                                periodicFreq = code
-                                                periodicFreqExpanded = false
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = balanceText,
+                            onValueChange = { balanceText = it },
+                            label = { Text(if (accountToEdit != null) "Saldo Actual (${selectedCurrency.symbol})" else "Saldo Inicial (${selectedCurrency.symbol})") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.fillMaxWidth().testTag("account_balance_input"),
+                            singleLine = true
+                        )
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = isSavings,
+                                onCheckedChange = { isSavings = it }
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Destinar como Fondo de Ahorro / Colchón",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextPrimaryDark
+                            )
+                        }
+
+                        // Periodic Income Section
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = SlateCardLight),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = hasPeriodicIncome,
+                                        onCheckedChange = { hasPeriodicIncome = it },
+                                        modifier = Modifier.testTag("toggle_periodic_income")
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Column {
+                                        Text(
+                                            text = "¿Recibe dinero periódico en esta cuenta?",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextPrimaryDark
+                                        )
+                                        Text(
+                                            text = "Sueldo, honorarios, remesas periódicas",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextSecondaryDark,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+
+                                if (hasPeriodicIncome) {
+                                    OutlinedTextField(
+                                        value = periodicIncomeDesc,
+                                        onValueChange = { periodicIncomeDesc = it },
+                                        label = { Text("Concepto (ej. Nómina Quincenal, Remesa)") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
+
+                                    OutlinedTextField(
+                                        value = periodicIncomeAmountText,
+                                        onValueChange = { periodicIncomeAmountText = it },
+                                        label = { Text("Monto periódico (${selectedCurrency.displayName})") },
+                                        prefix = { Text("${selectedCurrency.symbol} ") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                        modifier = Modifier.fillMaxWidth().testTag("periodic_income_amount_input"),
+                                        singleLine = true
+                                    )
+
+                                    ExposedDropdownMenuBox(
+                                        expanded = periodicFreqExpanded,
+                                        onExpandedChange = { periodicFreqExpanded = it }
+                                    ) {
+                                        val freqLabel = when (periodicFreq) {
+                                            "QUINCENAL" -> "Quincenal (Día 15 y fin de mes)"
+                                            "SEMANAL" -> "Semanal (Cada 7 días)"
+                                            else -> "Mensual (Día fijo de cada mes)"
+                                        }
+                                        OutlinedTextField(
+                                            value = freqLabel,
+                                            onValueChange = {},
+                                            readOnly = true,
+                                            label = { Text("Frecuencia de Cobro") },
+                                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = periodicFreqExpanded) },
+                                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                                        )
+                                        ExposedDropdownMenu(
+                                            expanded = periodicFreqExpanded,
+                                            onDismissRequest = { periodicFreqExpanded = false }
+                                        ) {
+                                            listOf(
+                                                "QUINCENAL" to "Quincenal (Día 15 y fin de mes)",
+                                                "MENSUAL" to "Mensual (Día fijo)",
+                                                "SEMANAL" to "Semanal (Cada 7 días)"
+                                            ).forEach { (code, label) ->
+                                                DropdownMenuItem(
+                                                    text = { Text(label) },
+                                                    onClick = {
+                                                        periodicFreq = code
+                                                        periodicFreqExpanded = false
+                                                    }
+                                                )
                                             }
+                                        }
+                                    }
+
+                                    if (periodicFreq == "MENSUAL") {
+                                        OutlinedTextField(
+                                            value = periodicDayOfMonthText,
+                                            onValueChange = { periodicDayOfMonthText = it },
+                                            label = { Text("Día del mes (1 - 31)") },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            modifier = Modifier.fillMaxWidth(),
+                                            singleLine = true
                                         )
                                     }
                                 }
                             }
+                        }
 
-                            if (periodicFreq == "MENSUAL") {
-                                OutlinedTextField(
-                                    value = periodicDayOfMonthText,
-                                    onValueChange = { periodicDayOfMonthText = it },
-                                    label = { Text("Día del mes (1 - 31)") },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true
+                        Text(
+                            text = "Color distintivo",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondaryDark
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            COLOR_OPTIONS.forEach { hex ->
+                                val color = try { Color(android.graphics.Color.parseColor(hex)) } catch (e: Exception) { EmeraldLight }
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .background(color)
+                                        .clickable { selectedColor = hex }
+                                        .then(
+                                            if (selectedColor == hex) Modifier.border(2.5.dp, Color.White, CircleShape)
+                                            else Modifier
+                                        )
                                 )
                             }
                         }
                     }
-                }
 
-                Text(
-                    text = "Color distintivo",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondaryDark
-                )
+                    // Pinned Footer Actions
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 4.dp)
+                        ) {
+                            Text("Cancelar", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    COLOR_OPTIONS.forEach { hex ->
-                        val color = try { Color(android.graphics.Color.parseColor(hex)) } catch (e: Exception) { EmeraldLight }
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(color)
-                                .clickable { selectedColor = hex }
-                                .then(
-                                    if (selectedColor == hex) Modifier.border(2.5.dp, Color.White, CircleShape)
-                                    else Modifier
-                                )
-                        )
-                    }
-                }
+                        if (onDelete != null) {
+                            Button(
+                                onClick = {
+                                    onDelete()
+                                    onDismiss()
+                                },
+                                modifier = Modifier.weight(1f).testTag("delete_account_dialog_btn"),
+                                colors = ButtonDefaults.buttonColors(containerColor = AccentRed),
+                                contentPadding = PaddingValues(horizontal = 4.dp)
+                            ) {
+                                Text("Eliminar", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                        Text("Cancelar")
-                    }
-
-                    if (onDelete != null) {
                         Button(
                             onClick = {
-                                onDelete()
-                                onDismiss()
-                            },
-                            modifier = Modifier.weight(1f).testTag("delete_account_dialog_btn"),
-                            colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
-                        ) {
-                            Text("Eliminar")
-                        }
-                    }
-
-                    Button(
-                        onClick = {
-                            val parsed = balanceText.toDoubleOrNull() ?: 0.0
-                            val parsedPeriodicAmount = periodicIncomeAmountText.toDoubleOrNull() ?: 0.0
-                            val parsedDay = periodicDayOfMonthText.toIntOrNull() ?: 15
-                            if (name.isNotBlank()) {
-                                onSave(
-                                    Account(
-                                        id = accountToEdit?.id ?: "",
-                                        userId = accountToEdit?.userId ?: "",
-                                        name = name.trim(),
-                                        type = selectedType.name,
-                                        currentBalance = parsed,
-                                        initialBalance = if (accountToEdit != null) accountToEdit.initialBalance else parsed,
-                                        currency = selectedCurrency.name,
-                                        colorHex = selectedColor,
-                                        iconName = selectedType.iconRes,
-                                        isSavings = isSavings,
-                                        hasPeriodicIncome = hasPeriodicIncome,
-                                        periodicIncomeAmount = parsedPeriodicAmount,
-                                        periodicIncomeCurrency = selectedCurrency.name,
-                                        periodicIncomeFrequency = periodicFreq,
-                                        periodicIncomeDayOfMonth = parsedDay.coerceIn(1, 31),
-                                        periodicIncomeDescription = periodicIncomeDesc.trim().ifBlank { "Sueldo" },
-                                        createdAt = accountToEdit?.createdAt
+                                val parsed = balanceText.toDoubleOrNull() ?: 0.0
+                                val parsedPeriodicAmount = periodicIncomeAmountText.toDoubleOrNull() ?: 0.0
+                                val parsedDay = periodicDayOfMonthText.toIntOrNull() ?: 15
+                                if (name.isNotBlank()) {
+                                    onSave(
+                                        Account(
+                                            id = accountToEdit?.id ?: "",
+                                            userId = accountToEdit?.userId ?: "",
+                                            name = name.trim(),
+                                            type = selectedType.name,
+                                            currentBalance = parsed,
+                                            initialBalance = if (accountToEdit != null) accountToEdit.initialBalance else parsed,
+                                            currency = selectedCurrency.name,
+                                            colorHex = selectedColor,
+                                            iconName = selectedType.iconRes,
+                                            isSavings = isSavings,
+                                            hasPeriodicIncome = hasPeriodicIncome,
+                                            periodicIncomeAmount = parsedPeriodicAmount,
+                                            periodicIncomeCurrency = selectedCurrency.name,
+                                            periodicIncomeFrequency = periodicFreq,
+                                            periodicIncomeDayOfMonth = parsedDay.coerceIn(1, 31),
+                                            periodicIncomeDescription = periodicIncomeDesc.trim().ifBlank { "Sueldo" },
+                                            createdAt = accountToEdit?.createdAt
+                                        )
                                     )
-                                )
-                                onDismiss()
-                            }
-                        },
-                        enabled = name.isNotBlank(),
-                        modifier = Modifier.weight(1f).testTag("save_account_btn"),
-                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
-                    ) {
-                        Text(if (accountToEdit != null) "Actualizar" else "Guardar")
+                                    onDismiss()
+                                }
+                            },
+                            enabled = name.isNotBlank(),
+                            modifier = Modifier.weight(1.1f).testTag("save_account_btn"),
+                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                            contentPadding = PaddingValues(horizontal = 4.dp)
+                        ) {
+                            Text(if (accountToEdit != null) "Actualizar" else "Guardar", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 }
             }
@@ -752,12 +782,21 @@ fun AddTransactionDialog(
                     )
                 }
 
+                // Filter accounts: Income cannot target plan start account; Expense can use plan start account if balance > 0
+                val selectableAccounts = remember(accounts, type) {
+                    if (type == TransactionType.INCOME.name) {
+                        accounts.filter { !it.isPlanStartAccount }
+                    } else {
+                        accounts.filter { !it.isPlanStartAccount || it.currentBalance > 0 }
+                    }
+                }
+
                 // Origin Account Dropdown
                 ExposedDropdownMenuBox(
                     expanded = accountExpanded,
                     onExpandedChange = { accountExpanded = it }
                 ) {
-                    val currentAccName = accounts.find { it.id == selectedAccountId }?.name ?: "Seleccionar Cuenta"
+                    val currentAccName = selectableAccounts.find { it.id == selectedAccountId }?.name ?: "Seleccionar Cuenta"
                     OutlinedTextField(
                         value = currentAccName,
                         onValueChange = {},
@@ -770,7 +809,7 @@ fun AddTransactionDialog(
                         expanded = accountExpanded,
                         onDismissRequest = { accountExpanded = false }
                     ) {
-                        accounts.forEach { acc ->
+                        selectableAccounts.forEach { acc ->
                             DropdownMenuItem(
                                 text = { Text("${acc.name} (${acc.currency})") },
                                 onClick = {
@@ -801,7 +840,7 @@ fun AddTransactionDialog(
                             expanded = targetAccountExpanded,
                             onDismissRequest = { targetAccountExpanded = false }
                         ) {
-                            accounts.filter { it.id != selectedAccountId }.forEach { acc ->
+                            accounts.filter { it.id != selectedAccountId && !it.isPlanStartAccount }.forEach { acc ->
                                 DropdownMenuItem(
                                     text = { Text("${acc.name} (${acc.currency})") },
                                     onClick = {
@@ -3131,14 +3170,23 @@ fun PayCommitmentDialog(
 
     val commCurrency = AppCurrency.fromCode(commitment.currency)
     var amountText by remember { mutableStateOf(String.format(Locale.US, "%.2f", suggestedAmount)) }
+    val payAccounts = remember(accounts) {
+        accounts.filter { !it.isPlanStartAccount || it.currentBalance > 0 }
+    }
+
     var selectedAccountId by remember {
-        mutableStateOf(commitment.accountId ?: accounts.firstOrNull()?.id ?: "")
+        mutableStateOf(
+            commitment.accountId?.takeIf { id -> payAccounts.any { it.id == id } }
+                ?: payAccounts.firstOrNull { it.isPlanStartAccount }?.id
+                ?: payAccounts.firstOrNull()?.id
+                ?: ""
+        )
     }
     var accountExpanded by remember { mutableStateOf(false) }
     var notes by remember { mutableStateOf("") }
 
     val amount = amountText.toDoubleOrNull() ?: 0.0
-    val selectedAccount = accounts.find { it.id == selectedAccountId }
+    val selectedAccount = payAccounts.find { it.id == selectedAccountId } ?: payAccounts.firstOrNull()
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -3229,7 +3277,7 @@ fun PayCommitmentDialog(
                         expanded = accountExpanded,
                         onDismissRequest = { accountExpanded = false }
                     ) {
-                        accounts.forEach { acc ->
+                        payAccounts.forEach { acc ->
                             DropdownMenuItem(
                                 text = { Text("${acc.name} (${acc.currency}) • Saldo: ${acc.currentBalance}") },
                                 onClick = {

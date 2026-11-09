@@ -21,6 +21,7 @@ import com.example.data.repository.FinanceRepository
 import com.example.ui.components.CelebrationData
 import com.example.ui.components.formatCurrency
 import com.google.firebase.Timestamp
+import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -412,7 +413,48 @@ class FinanceViewModel(
         }
     }
 
+    fun injectPlanStartCapital(amount: Double, currency: String = AppCurrency.USD_BCV.name) {
+        viewModelScope.launch {
+            try {
+                val existing = accounts.value.firstOrNull { it.isPlanStartAccount }
+                if (existing != null) {
+                    val updated = existing.copy(
+                        currentBalance = amount,
+                        initialBalance = amount,
+                        currency = currency,
+                        isSystemAccount = true
+                    )
+                    repository.updateAccount(currentUserId, updated)
+                } else {
+                    val newAcc = Account(
+                        id = "inicio_plan",
+                        userId = currentUserId,
+                        name = "Inicio del Plan",
+                        type = AccountType.CASH.name,
+                        currentBalance = amount,
+                        initialBalance = amount,
+                        currency = currency,
+                        colorHex = "#6366F1",
+                        isSavings = false,
+                        isSystemAccount = true
+                    )
+                    repository.createAccount(currentUserId, newAcc)
+                }
+                val symbol = AppCurrency.fromCode(currency).symbol
+                val formatted = String.format(Locale.US, "%.2f", amount)
+                _userMessage.value = UiMessage.Success("Fondo de Inicio del Plan establecido en $symbol $formatted")
+            } catch (e: Exception) {
+                _errorMessage.value = "Error al inyectar capital inicial: ${e.localizedMessage}"
+            }
+        }
+    }
+
     fun deleteAccount(accountId: String) {
+        val acc = accounts.value.firstOrNull { it.id == accountId }
+        if (acc != null && acc.isPlanStartAccount) {
+            _errorMessage.value = "La cuenta 'Inicio del Plan' es del sistema y no puede ser eliminada."
+            return
+        }
         viewModelScope.launch {
             try {
                 repository.deleteAccount(currentUserId, accountId)

@@ -68,8 +68,9 @@ fun AccountsScreen(
     var accountToDelete by remember { mutableStateOf<Account?>(null) }
     var showTransferDialog by remember { mutableStateOf(false) }
 
-    val totalBalance = accounts.sumOf { it.currentBalance }
-    val savingsAccounts = accounts.filter { it.isSavings || it.type == AccountType.SAVINGS.name }
+    val visibleAccounts = remember(accounts) { accounts.filter { !it.isPlanStartAccount } }
+    val totalBalance = visibleAccounts.sumOf { it.currentBalance }
+    val savingsAccounts = visibleAccounts.filter { it.isSavings || it.type == AccountType.SAVINGS.name }
     val savingsTotal = savingsAccounts.sumOf { it.currentBalance }
 
     LazyColumn(
@@ -116,7 +117,7 @@ fun AccountsScreen(
                             Text("Nueva Cuenta", fontWeight = FontWeight.SemiBold)
                         }
 
-                        if (accounts.size >= 2) {
+                        if (visibleAccounts.size >= 2) {
                             OutlinedButton(
                                 onClick = { showTransferDialog = true },
                                 modifier = Modifier.weight(1f).testTag("transfer_btn"),
@@ -160,14 +161,14 @@ fun AccountsScreen(
 
         item {
             Text(
-                text = "Todas las Cuentas (${accounts.size})",
+                text = "Todas las Cuentas (${visibleAccounts.size})",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimaryDark
             )
         }
 
-        if (accounts.isEmpty()) {
+        if (visibleAccounts.isEmpty()) {
             item {
                 Surface(
                     color = SlateCard.copy(alpha = 0.5f),
@@ -195,7 +196,7 @@ fun AccountsScreen(
                 }
             }
         } else {
-            items(accounts, key = { it.id }) { acc ->
+            items(visibleAccounts, key = { it.id }) { acc ->
                 AccountItemCard(
                     account = acc,
                     onEdit = { accountToEdit = acc },

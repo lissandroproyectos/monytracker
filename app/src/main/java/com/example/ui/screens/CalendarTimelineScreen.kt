@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CreditCard
@@ -119,7 +120,8 @@ data class PlannedEvent(
     val commitment: ExpenseCommitment? = null,
     val installmentNumber: Long? = null,
     val availableBalanceAfter: Double = 0.0,
-    val sweepExcessAmount: Double = 0.0
+    val sweepExcessAmount: Double = 0.0,
+    val transactionId: String? = null
 )
 
 @Composable
@@ -306,7 +308,7 @@ fun MonthlyCalendarView(
     }
 
     var selectedDayOfMonth by remember { mutableStateOf<Int?>(null) }
-    var statusFilter by remember { mutableStateOf("ALL") } // ALL, PENDING, PAID
+    var statusFilter by remember { mutableStateOf("PENDING") } // PENDING, PAID, ALL
 
     val monthStart = remember(calendarMonth) {
         (calendarMonth.clone() as Calendar).apply {
@@ -350,21 +352,24 @@ fun MonthlyCalendarView(
         }
     }
 
-    // Filter events by selected day and status
-    val displayedEvents = remember(monthEvents, selectedDayOfMonth, statusFilter) {
-        monthEvents.filter { event ->
-            val matchesDay = if (selectedDayOfMonth != null) {
+    // Events for selected day (or whole month)
+    val dayEvents = remember(monthEvents, selectedDayOfMonth) {
+        if (selectedDayOfMonth != null) {
+            monthEvents.filter { event ->
                 val cal = Calendar.getInstance().apply { time = event.dueDate }
                 cal.get(Calendar.DAY_OF_MONTH) == selectedDayOfMonth
-            } else true
+            }
+        } else monthEvents
+    }
 
-            val matchesStatus = when (statusFilter) {
+    // Filter events by status
+    val displayedEvents = remember(dayEvents, statusFilter) {
+        dayEvents.filter { event ->
+            when (statusFilter) {
                 "PENDING" -> !event.isPaid
                 "PAID" -> event.isPaid
                 else -> true
             }
-
-            matchesDay && matchesStatus
         }
     }
 
@@ -522,26 +527,11 @@ fun MonthlyCalendarView(
                 ) {
                     Surface(
                         shape = RoundedCornerShape(10.dp),
-                        color = if (statusFilter == "ALL") EmeraldPrimary else SlateCard,
-                        modifier = Modifier.weight(1f).clickable { statusFilter = "ALL" }
-                    ) {
-                        Text(
-                            text = "Todos (${displayedEvents.size})",
-                            modifier = Modifier.padding(vertical = 8.dp),
-                            textAlign = TextAlign.Center,
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (statusFilter == "ALL") NavySurface else TextSecondaryDark
-                        )
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
                         color = if (statusFilter == "PENDING") AccentAmber else SlateCard,
                         modifier = Modifier.weight(1.1f).clickable { statusFilter = "PENDING" }
                     ) {
                         Text(
-                            text = "Pendientes (${displayedEvents.count { !it.isPaid }})",
+                            text = "Pendientes (${dayEvents.count { !it.isPaid }})",
                             modifier = Modifier.padding(vertical = 8.dp),
                             textAlign = TextAlign.Center,
                             fontWeight = FontWeight.Bold,
@@ -556,12 +546,27 @@ fun MonthlyCalendarView(
                         modifier = Modifier.weight(1f).clickable { statusFilter = "PAID" }
                     ) {
                         Text(
-                            text = "Listos (${displayedEvents.count { it.isPaid }})",
+                            text = "Listos (${dayEvents.count { it.isPaid }})",
                             modifier = Modifier.padding(vertical = 8.dp),
                             textAlign = TextAlign.Center,
                             fontWeight = FontWeight.Bold,
                             style = MaterialTheme.typography.labelSmall,
                             color = if (statusFilter == "PAID") NavySurface else TextSecondaryDark
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (statusFilter == "ALL") EmeraldPrimary else SlateCard,
+                        modifier = Modifier.weight(1f).clickable { statusFilter = "ALL" }
+                    ) {
+                        Text(
+                            text = "Todos (${dayEvents.size})",
+                            modifier = Modifier.padding(vertical = 8.dp),
+                            textAlign = TextAlign.Center,
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (statusFilter == "ALL") NavySurface else TextSecondaryDark
                         )
                     }
                 }
@@ -1045,6 +1050,7 @@ fun PaymentPlanProjectionView(
 
         // Card: Cálculo de Monto para Inicio del Plan (Hasta el 1er Ingreso)
         item {
+            val planStartAcc = accounts.firstOrNull { it.isPlanStartAccount }
             PlanInitialCapitalCard(
                 startDate = startDate,
                 firstIncomeEvent = firstIncomeEvent,
@@ -1062,7 +1068,11 @@ fun PaymentPlanProjectionView(
                 rates = rates,
                 dateFormat = dateFormat,
                 showDetails = showPreIncomeDetails,
-                onToggleDetails = { showPreIncomeDetails = !showPreIncomeDetails }
+                onToggleDetails = { showPreIncomeDetails = !showPreIncomeDetails },
+                planStartAccount = planStartAcc,
+                onInjectInitialCapital = { targetAmount ->
+                    viewModel.injectPlanStartCapital(targetAmount, displayCurrency.name)
+                }
             )
         }
 
@@ -1724,20 +1734,27 @@ private fun generatePlannedEvents(
         val iterCal = Calendar.getInstance().apply { time = startDate }
 
         while (!iterCal.time.after(endDate)) {
+            val incomeDesc = acc.periodicIncomeDescription.ifBlank { "Ingreso" }
             when (acc.periodicIncomeFrequency) {
                 "QUINCENAL" -> {
                     val d15 = (iterCal.clone() as Calendar).apply { set(Calendar.DAY_OF_MONTH, 15) }
                     if (d15.time.time in startMs..endMs) {
+                        val matchingTx = transactions.firstOrNull { tx ->
+                            tx.type == TransactionType.INCOME.name &&
+                            (tx.accountId == acc.id || tx.description.contains(acc.name) || tx.description.contains(incomeDesc)) &&
+                            isSameDay(tx.date.toDate(), d15.time)
+                        }
                         events.add(
                             PlannedEvent(
                                 id = "inc_quin_15_${acc.id}_${d15.timeInMillis}",
-                                title = "${acc.periodicIncomeDescription.ifBlank { "Ingreso Quincenal" }} (${acc.name})",
+                                title = "$incomeDesc (${acc.name})",
                                 dueDate = d15.time,
                                 amount = acc.periodicIncomeAmount,
                                 currency = incCurr,
                                 isFixed = false,
                                 isIncome = true,
-                                isPaid = d15.time.before(Date())
+                                isPaid = matchingTx != null,
+                                transactionId = matchingTx?.id
                             )
                         )
                     }
@@ -1745,16 +1762,22 @@ private fun generatePlannedEvents(
                         set(Calendar.DAY_OF_MONTH, getActualMaximum(Calendar.DAY_OF_MONTH))
                     }
                     if (dEnd.time.time in startMs..endMs) {
+                        val matchingTx = transactions.firstOrNull { tx ->
+                            tx.type == TransactionType.INCOME.name &&
+                            (tx.accountId == acc.id || tx.description.contains(acc.name) || tx.description.contains(incomeDesc)) &&
+                            isSameDay(tx.date.toDate(), dEnd.time)
+                        }
                         events.add(
                             PlannedEvent(
                                 id = "inc_quin_end_${acc.id}_${dEnd.timeInMillis}",
-                                title = "${acc.periodicIncomeDescription.ifBlank { "Ingreso Quincenal" }} (${acc.name})",
+                                title = "$incomeDesc (${acc.name})",
                                 dueDate = dEnd.time,
                                 amount = acc.periodicIncomeAmount,
                                 currency = incCurr,
                                 isFixed = false,
                                 isIncome = true,
-                                isPaid = dEnd.time.before(Date())
+                                isPaid = matchingTx != null,
+                                transactionId = matchingTx?.id
                             )
                         )
                     }
@@ -1762,16 +1785,22 @@ private fun generatePlannedEvents(
                 }
                 "SEMANAL" -> {
                     if (iterCal.time.time in startMs..endMs) {
+                        val matchingTx = transactions.firstOrNull { tx ->
+                            tx.type == TransactionType.INCOME.name &&
+                            (tx.accountId == acc.id || tx.description.contains(acc.name) || tx.description.contains(incomeDesc)) &&
+                            isSameDay(tx.date.toDate(), iterCal.time)
+                        }
                         events.add(
                             PlannedEvent(
                                 id = "inc_sem_${acc.id}_${iterCal.timeInMillis}",
-                                title = "${acc.periodicIncomeDescription.ifBlank { "Ingreso Semanal" }} (${acc.name})",
+                                title = "$incomeDesc (${acc.name})",
                                 dueDate = iterCal.time,
                                 amount = acc.periodicIncomeAmount,
                                 currency = incCurr,
                                 isFixed = false,
                                 isIncome = true,
-                                isPaid = iterCal.time.before(Date())
+                                isPaid = matchingTx != null,
+                                transactionId = matchingTx?.id
                             )
                         )
                     }
@@ -1781,16 +1810,22 @@ private fun generatePlannedEvents(
                     val day = acc.periodicIncomeDayOfMonth.coerceIn(1, iterCal.getActualMaximum(Calendar.DAY_OF_MONTH))
                     val dMonth = (iterCal.clone() as Calendar).apply { set(Calendar.DAY_OF_MONTH, day) }
                     if (dMonth.time.time in startMs..endMs) {
+                        val matchingTx = transactions.firstOrNull { tx ->
+                            tx.type == TransactionType.INCOME.name &&
+                            (tx.accountId == acc.id || tx.description.contains(acc.name) || tx.description.contains(incomeDesc)) &&
+                            isSameDay(tx.date.toDate(), dMonth.time)
+                        }
                         events.add(
                             PlannedEvent(
                                 id = "inc_mes_${acc.id}_${dMonth.timeInMillis}",
-                                title = "${acc.periodicIncomeDescription.ifBlank { "Ingreso Mensual" }} (${acc.name})",
+                                title = "$incomeDesc (${acc.name})",
                                 dueDate = dMonth.time,
                                 amount = acc.periodicIncomeAmount,
                                 currency = incCurr,
                                 isFixed = false,
                                 isIncome = true,
-                                isPaid = dMonth.time.before(Date())
+                                isPaid = matchingTx != null,
+                                transactionId = matchingTx?.id
                             )
                         )
                     }
@@ -1800,29 +1835,40 @@ private fun generatePlannedEvents(
         }
     }
 
-    // 3. Transactions recorded in this range
+    // 3. Transactions recorded in this range (only add if not already matched to a planned event)
+    val matchedTxIds = events.mapNotNull { it.transactionId }.toSet()
     transactions.forEach { tx ->
-        val txDate = tx.date.toDate()
-        if (txDate.time in startMs..endMs) {
-            val isInc = tx.type == TransactionType.INCOME.name
-            val txCurr = AppCurrency.fromCode(tx.currency)
-            events.add(
-                PlannedEvent(
-                    id = "tx_${tx.id}",
-                    title = tx.description.ifBlank { if (isInc) "Ingreso Registrado" else "Egreso Registrado" },
-                    dueDate = txDate,
-                    amount = tx.amount,
-                    currency = txCurr,
-                    isFixed = tx.isFixedExpense,
-                    isIncome = isInc,
-                    isPaid = true,
-                    installmentInfo = if (isInc) "Cobrado" else "Pagado"
+        if (tx.id !in matchedTxIds) {
+            val txDate = tx.date.toDate()
+            if (txDate.time in startMs..endMs) {
+                val isInc = tx.type == TransactionType.INCOME.name
+                val txCurr = AppCurrency.fromCode(tx.currency)
+                events.add(
+                    PlannedEvent(
+                        id = "tx_${tx.id}",
+                        title = tx.description.ifBlank { if (isInc) "Ingreso Registrado" else "Egreso Registrado" },
+                        dueDate = txDate,
+                        amount = tx.amount,
+                        currency = txCurr,
+                        isFixed = tx.isFixedExpense,
+                        isIncome = isInc,
+                        isPaid = true,
+                        installmentInfo = if (isInc) "Cobrado" else "Pagado",
+                        transactionId = tx.id
+                    )
                 )
-            )
+            }
         }
     }
 
     return events.distinctBy { it.id }.sortedBy { it.dueDate }
+}
+
+private fun isSameDay(d1: Date, d2: Date): Boolean {
+    val c1 = Calendar.getInstance().apply { time = d1 }
+    val c2 = Calendar.getInstance().apply { time = d2 }
+    return c1.get(Calendar.YEAR) == c2.get(Calendar.YEAR) &&
+           c1.get(Calendar.DAY_OF_YEAR) == c2.get(Calendar.DAY_OF_YEAR)
 }
 
 // Helper: Toggle event ready status
@@ -1831,7 +1877,13 @@ private fun toggleEventReady(
     event: PlannedEvent,
     accounts: List<Account>
 ) {
-    if (event.commitment != null && event.installmentNumber != null) {
+    if (event.transactionId != null) {
+        // Uncheck item by deleting the existing transaction
+        val txToDelete = viewModel.transactions.value.firstOrNull { it.id == event.transactionId }
+        if (txToDelete != null) {
+            viewModel.deleteTransaction(txToDelete)
+        }
+    } else if (event.commitment != null && event.installmentNumber != null) {
         viewModel.toggleInstallment(
             commitment = event.commitment,
             installmentNumber = event.installmentNumber,
@@ -1892,6 +1944,8 @@ fun PlanInitialCapitalCard(
     dateFormat: SimpleDateFormat,
     showDetails: Boolean,
     onToggleDetails: () -> Unit,
+    planStartAccount: Account? = null,
+    onInjectInitialCapital: ((Double) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val daysToFirstIncome = remember(startDate, firstIncomeEvent) {
@@ -1900,6 +1954,8 @@ fun PlanInitialCapitalCard(
             (diff / (1000 * 60 * 60 * 24)).coerceAtLeast(0)
         } else 0L
     }
+
+    val targetInjectAmount = if (amountNeededForCushion > 0) amountNeededForCushion else amountNeededForZero
 
     Card(
         modifier = modifier
@@ -1914,7 +1970,9 @@ fun PlanInitialCapitalCard(
         ) {
             // Header Row
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onInjectInitialCapital?.invoke(targetInjectAmount) },
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1972,7 +2030,7 @@ fun PlanInitialCapitalCard(
             }
 
             Text(
-                text = "Dinero necesario para que, cuando llegue el primer ingreso del plan, tu saldo esté en 0 (mínimo) o conserve el colchón (óptimo):",
+                text = "Toca para inyectar este dinero en la cuenta oculta 'Inicio del Plan', lista para cubrir egresos hasta tu primer cobro:",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondaryDark,
                 fontSize = 12.sp
@@ -1988,7 +2046,9 @@ fun PlanInitialCapitalCard(
                     shape = RoundedCornerShape(12.dp),
                     color = SlateCardLight,
                     border = BorderStroke(1.dp, SlateBackground),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onInjectInitialCapital?.invoke(amountNeededForZero) }
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2015,7 +2075,7 @@ fun PlanInitialCapitalCard(
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "Mínimo para cubrir egresos sin caer en negativo",
+                            text = "Toca para inyectar este mínimo a 'Inicio del Plan'",
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondaryDark,
                             fontSize = 10.sp,
@@ -2029,7 +2089,9 @@ fun PlanInitialCapitalCard(
                     shape = RoundedCornerShape(12.dp),
                     color = SlateCardLight,
                     border = BorderStroke(1.dp, EmeraldLight.copy(alpha = 0.3f)),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onInjectInitialCapital?.invoke(amountNeededForCushion) }
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2056,11 +2118,57 @@ fun PlanInitialCapitalCard(
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "Egresos + Colchón (${formatCurrency(cushionAmount, displayCurrency.symbol)}) protegido",
+                            text = "Toca para inyectar este capital optimizado",
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondaryDark,
                             fontSize = 10.sp,
                             lineHeight = 13.sp
+                        )
+                    }
+                }
+            }
+
+            // Interactive Inject Button
+            if (onInjectInitialCapital != null) {
+                Button(
+                    onClick = { onInjectInitialCapital(targetInjectAmount) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("inject_initial_capital_btn"),
+                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = if (planStartAccount != null && planStartAccount.currentBalance > 0)
+                            "Actualizar 'Inicio del Plan' (${formatCurrency(targetInjectAmount, displayCurrency.symbol)})"
+                        else
+                            "Inyectar Capital a 'Inicio del Plan' (${formatCurrency(targetInjectAmount, displayCurrency.symbol)})",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+
+            if (planStartAccount != null && planStartAccount.currentBalance > 0) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = EmeraldDark.copy(alpha = 0.25f),
+                    border = BorderStroke(1.dp, EmeraldLight.copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "Fondo activo en 'Inicio del Plan': ${formatCurrency(planStartAccount.currentBalance, displayCurrency.symbol)} (disponible para pagar egresos)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextPrimaryDark,
+                            fontSize = 11.sp
                         )
                     }
                 }

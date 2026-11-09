@@ -33,9 +33,13 @@ data class Account(
     val periodicIncomeFrequency: String = "QUINCENAL", // QUINCENAL, MENSUAL, SEMANAL
     val periodicIncomeDayOfMonth: Int = 15,
     val periodicIncomeDescription: String = "Sueldo / Honorarios",
+    val isSystemAccount: Boolean = false,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 ) {
+    val isPlanStartAccount: Boolean
+        get() = isSystemAccount || name == "Inicio del Plan" || id == "inicio_plan"
+
     fun toMap(): Map<String, Any> {
         val map = mutableMapOf<String, Any?>(
             "userId" to userId,
@@ -53,6 +57,7 @@ data class Account(
             "periodicIncomeFrequency" to periodicIncomeFrequency,
             "periodicIncomeDayOfMonth" to periodicIncomeDayOfMonth,
             "periodicIncomeDescription" to periodicIncomeDescription,
+            "isSystemAccount" to isSystemAccount,
             "createdAt" to (createdAt ?: FieldValue.serverTimestamp()),
             "updatedAt" to FieldValue.serverTimestamp()
         )
