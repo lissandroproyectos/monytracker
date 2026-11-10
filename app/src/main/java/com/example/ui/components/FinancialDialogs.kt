@@ -97,6 +97,9 @@ import java.util.Calendar
 import java.util.Date
 import java.text.SimpleDateFormat
 import java.util.Locale
+import com.example.data.currency.ExchangeRates
+import com.example.ui.screens.PlannedEvent
+
 
 val COLOR_OPTIONS = listOf(
     "#10B981", "#3B82F6", "#8B5CF6", "#F59E0B", "#EF4444", "#06B6D4", "#EC4899"
@@ -3542,6 +3545,10 @@ fun ConfirmPaymentDialog(
     dueDate: Date,
     accounts: List<Account>,
     isIncome: Boolean = false,
+    isEditMode: Boolean = false,
+    initialAccountId: String? = null,
+    initialPaidDate: Date? = null,
+    initialNotes: String = "",
     onDismiss: () -> Unit,
     onConfirm: (account: Account?, paidDate: Date, amount: Double, notes: String) -> Unit
 ) {
@@ -3555,14 +3562,24 @@ fun ConfirmPaymentDialog(
     // selectedAccountId == "EXTERNAL" means Dinero Externo / Sin Afectar Cuentas
     var selectedAccountId by remember {
         mutableStateOf(
-            payAccounts.firstOrNull { it.isPlanStartAccount }?.id
-                ?: payAccounts.firstOrNull()?.id
-                ?: "EXTERNAL"
+            if (initialAccountId != null) {
+                if (initialAccountId == "EXTERNAL" || accounts.any { it.id == initialAccountId }) {
+                    initialAccountId
+                } else {
+                    payAccounts.firstOrNull { it.isPlanStartAccount }?.id
+                        ?: payAccounts.firstOrNull()?.id
+                        ?: "EXTERNAL"
+                }
+            } else {
+                payAccounts.firstOrNull { it.isPlanStartAccount }?.id
+                    ?: payAccounts.firstOrNull()?.id
+                    ?: "EXTERNAL"
+            }
         )
     }
 
-    var selectedDate by remember { mutableStateOf(dueDate) }
-    var notes by remember { mutableStateOf("") }
+    var selectedDate by remember { mutableStateOf(initialPaidDate ?: dueDate) }
+    var notes by remember { mutableStateOf(initialNotes) }
     var accountExpanded by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
 
@@ -3628,7 +3645,11 @@ fun ConfirmPaymentDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = if (isIncome) "Confirmar Cobro / Ingreso" else "Registrar Pago / Salida",
+                            text = if (isEditMode) {
+                                if (isIncome) "Modificar Cobro / Cuenta" else "Modificar Cuenta / Fecha de Pago"
+                            } else {
+                                if (isIncome) "Confirmar Cobro / Ingreso" else "Registrar Pago / Salida"
+                            },
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimaryDark
@@ -3771,7 +3792,12 @@ fun ConfirmPaymentDialog(
                             colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
                             modifier = Modifier.weight(1.2f).testTag("confirm_payment_btn")
                         ) {
-                            Text(if (isIncome) "Confirmar Cobro" else "Confirmar Pago", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                text = if (isEditMode) "Guardar Cambios" else if (isIncome) "Confirmar Cobro" else "Confirmar Pago",
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
@@ -3779,3 +3805,319 @@ fun ConfirmPaymentDialog(
         }
     }
 }
+
+// Dialog to inspect a planned event's details without immediately paying/collecting it,
+// and allowing changes to paying account, payment date, or unmarking as ready.
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EventDetailDialog(
+    event: PlannedEvent,
+    displayCurrency: AppCurrency,
+    rates: ExchangeRates,
+    accounts: List<Account>,
+    transactions: List<Transaction>,
+    onDismiss: () -> Unit,
+    onEditPayment: () -> Unit,
+    onToggleReady: () -> Unit,
+    onViewSchedule: (() -> Unit)? = null
+) {
+    val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()) }
+    val currency = event.currency
+    val amountInDisp = rates.convert(event.amount, event.currency, displayCurrency)
+
+    // Find linked transaction if paid
+    val matchedTx = remember(event, transactions) {
+        if (!event.isPaid) null
+        else {
+            if (event.transactionId != null) {
+                transactions.firstOrNull { it.id == event.transactionId }
+            } else if (event.commitment != null && event.installmentNumber != null) {
+                transactions.firstOrNull {
+                    it.commitmentId == event.commitment.id &&
+                    it.description.contains("Cuota ${event.installmentNumber}/")
+                }
+            } else if (!event.isIncome && event.commitment != null) {
+                transactions.firstOrNull {
+                    it.commitmentId == event.commitment.id
+                }
+            } else if (event.isIncome) {
+                transactions.firstOrNull {
+                    it.type == "INCOME" && (it.amount == event.amount || it.description.contains(event.title))
+                }
+            } else null
+        }
+    }
+
+    val payingAccount = remember(matchedTx, accounts) {
+        if (matchedTx == null) null
+        else accounts.firstOrNull { it.id == matchedTx.accountId }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.6f))
+                .systemBarsPadding()
+                .imePadding()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("event_detail_dialog"),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = SlateCard)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // Header
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (event.isIncome) EmeraldLight.copy(alpha = 0.15f)
+                                        else if (event.isFixed) AccentAmber.copy(alpha = 0.15f)
+                                        else AccentRed.copy(alpha = 0.15f)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (event.isIncome) Icons.Default.TrendingUp
+                                    else if (event.isFixed) Icons.Default.CalendarMonth
+                                    else Icons.Default.CreditCard,
+                                    contentDescription = null,
+                                    tint = if (event.isIncome) EmeraldLight else if (event.isFixed) AccentAmber else AccentRed,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Detalle del Movimiento",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimaryDark
+                                )
+                                Text(
+                                    text = if (event.isIncome) "Ingreso Previsto" else if (event.isFixed) "Gasto Fijo Recurrente" else "Compromiso / Deuda en Cuotas",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondaryDark
+                                )
+                            }
+                        }
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = TextSecondaryDark)
+                        }
+                    }
+
+                    // Main Info Card
+                    Surface(
+                        color = SlateBackground,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = event.title,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimaryDark
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "${if (event.isIncome) "+" else "-"}${formatCurrency(event.amount, currency.symbol)}",
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (event.isIncome) EmeraldLight else AccentRed
+                                    )
+                                    if (currency != displayCurrency) {
+                                        Text(
+                                            text = "≈ ${formatCurrency(amountInDisp, displayCurrency.symbol)} ($displayCurrency)",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextSecondaryDark
+                                        )
+                                    }
+                                }
+
+                                // Status Badge
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (event.isPaid) EmeraldDark.copy(alpha = 0.4f) else AccentAmber.copy(alpha = 0.2f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        if (event.isPaid) {
+                                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(14.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                        }
+                                        Text(
+                                            text = if (event.isPaid) "LISTO / PAGADO" else "PENDIENTE",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = if (event.isPaid) EmeraldLight else AccentAmber,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Details Section
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Fecha planificada:", style = MaterialTheme.typography.bodyMedium, color = TextSecondaryDark)
+                            Text(dateFormat.format(event.dueDate), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = TextPrimaryDark)
+                        }
+
+                        if (event.installmentInfo != null) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Progreso de cuotas:", style = MaterialTheme.typography.bodyMedium, color = TextSecondaryDark)
+                                Text(event.installmentInfo, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = EmeraldLight)
+                            }
+                        }
+
+                        if (event.isPaid) {
+                            HorizontalDivider(color = SlateBackground)
+
+                            Text(
+                                text = "Información del Pago Realizado",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = EmeraldLight
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Fecha de pago:", style = MaterialTheme.typography.bodyMedium, color = TextSecondaryDark)
+                                val paidDateStr = matchedTx?.date?.toDate()?.let { dateFormat.format(it) } ?: dateFormat.format(event.dueDate)
+                                Text(paidDateStr, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = TextPrimaryDark)
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(if (event.isIncome) "Cuenta receptora:" else "Cuenta pagadora:", style = MaterialTheme.typography.bodyMedium, color = TextSecondaryDark)
+                                val accLabel = if (payingAccount != null) {
+                                    "${payingAccount.name} (${payingAccount.currency})"
+                                } else if (matchedTx != null && matchedTx.accountId.isNotBlank()) {
+                                    "Cuenta registrada"
+                                } else {
+                                    "🌐 Dinero Externo (Sin salida de cuentas)"
+                                }
+                                Text(accLabel, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = TextPrimaryDark)
+                            }
+
+                            if (matchedTx?.notes?.isNotBlank() == true) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Nota / Observación:", style = MaterialTheme.typography.bodyMedium, color = TextSecondaryDark)
+                                    Text(matchedTx.notes, style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
+                                }
+                            }
+                        }
+                    }
+
+                    // Optional view full schedule button
+                    if (onViewSchedule != null && event.commitment != null && (event.commitment.totalInstallments > 1 || !event.commitment.isFixedExpense)) {
+                        OutlinedButton(
+                            onClick = onViewSchedule,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = EmeraldLight),
+                            border = BorderStroke(1.dp, EmeraldLight.copy(alpha = 0.5f))
+                        ) {
+                            Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Ver Cronograma de Cuotas")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Action buttons
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (event.isPaid) {
+                            Button(
+                                onClick = onEditPayment,
+                                colors = ButtonDefaults.buttonColors(containerColor = SlateCardLight),
+                                modifier = Modifier.fillMaxWidth().testTag("edit_payment_account_btn")
+                            ) {
+                                Icon(Icons.Default.EditCalendar, contentDescription = null, modifier = Modifier.size(16.dp), tint = TextPrimaryDark)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Cambiar Cuenta o Fecha de Pago", color = TextPrimaryDark, fontWeight = FontWeight.Bold)
+                            }
+
+                            OutlinedButton(
+                                onClick = onToggleReady,
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentRed),
+                                border = BorderStroke(1.dp, AccentRed.copy(alpha = 0.5f)),
+                                modifier = Modifier.fillMaxWidth().testTag("unmark_payment_btn")
+                            ) {
+                                Text("Desmarcar (Volver a Pendiente)")
+                            }
+                        } else {
+                            Button(
+                                onClick = onToggleReady,
+                                colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                                modifier = Modifier.fillMaxWidth().testTag("register_payment_btn")
+                            ) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(if (event.isIncome) "Registrar Cobro / Ingreso" else "Registrar Pago / Salida", fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Cerrar")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Calendar
 import java.util.Date
+import com.example.ui.screens.PlannedEvent
 
 data class FinancialHealth(
     val totalAvailableInDisplay: Double = 0.0,
@@ -591,6 +592,125 @@ class FinanceViewModel(
                 _errorMessage.value = "Error actualizando cuota: ${e.localizedMessage}"
             }
         }
+    }
+
+    fun editEventPayment(
+        event: PlannedEvent,
+        newAccount: Account?,
+        newPaidDate: Date,
+        newAmount: Double,
+        notes: String
+    ) {
+        viewModelScope.launch {
+            try {
+                // 1. Find and delete previous transaction if one exists (reverting old account balance)
+                var oldTx = if (event.transactionId != null) {
+                    transactions.value.firstOrNull { it.id == event.transactionId }
+                } else null
+
+                if (oldTx == null && event.commitment != null && event.installmentNumber != null) {
+                    oldTx = transactions.value.firstOrNull {
+                        it.commitmentId == event.commitment.id &&
+                        it.description.contains("Cuota ${event.installmentNumber}/")
+                    }
+                }
+
+                if (oldTx == null && !event.isIncome && event.commitment != null) {
+                    oldTx = transactions.value.firstOrNull {
+                        it.commitmentId == event.commitment.id && isSameDay(it.date.toDate(), event.dueDate)
+                    }
+                }
+
+                if (oldTx == null && event.isIncome) {
+                    oldTx = transactions.value.firstOrNull {
+                        it.type == "INCOME" &&
+                        (event.transactionId == it.id || (it.amount == event.amount && isSameDay(it.date.toDate(), event.dueDate)))
+                    }
+                }
+
+                if (oldTx != null) {
+                    repository.deleteTransaction(currentUserId, oldTx)
+                }
+
+                // 2. Register updated payment/income
+                if (event.commitment != null && event.installmentNumber != null) {
+                    // Update installment in commitment
+                    val currentInstallments = event.commitment.getProjectedInstallments().toMutableList()
+                    val idx = currentInstallments.indexOfFirst { it.number == event.installmentNumber }
+                    if (idx != -1) {
+                        currentInstallments[idx] = currentInstallments[idx].copy(
+                            isPaid = true,
+                            paidDate = Timestamp(newPaidDate),
+                            amount = if (newAmount > 0) newAmount else currentInstallments[idx].amount
+                        )
+                        val updatedCommitment = event.commitment.copy(
+                            installments = currentInstallments.map { it.toMap() }
+                        )
+                        repository.updateCommitment(currentUserId, updatedCommitment)
+                    }
+
+                    if (newAccount != null && newAccount.id.isNotBlank() && newAccount.id != "EXTERNAL") {
+                        val newTx = Transaction(
+                            userId = currentUserId,
+                            accountId = newAccount.id,
+                            type = "EXPENSE",
+                            amount = if (newAmount > 0) newAmount else event.amount,
+                            currency = event.commitment.currency,
+                            category = event.commitment.category,
+                            description = "Cuota ${event.installmentNumber}/${event.commitment.totalInstallments}: ${event.commitment.title}" + if (notes.isNotBlank()) " ($notes)" else "",
+                            date = Timestamp(newPaidDate),
+                            commitmentId = event.commitment.id,
+                            isFixedExpense = event.commitment.isFixedExpense,
+                            notes = notes.trim().ifBlank { null }
+                        )
+                        repository.addTransaction(currentUserId, newTx, exchangeRates.value)
+                    }
+                } else if (!event.isIncome && event.commitment != null) {
+                    if (newAccount != null && newAccount.id.isNotBlank() && newAccount.id != "EXTERNAL") {
+                        val newTx = Transaction(
+                            userId = currentUserId,
+                            accountId = newAccount.id,
+                            type = "EXPENSE",
+                            amount = newAmount,
+                            currency = event.currency.name,
+                            category = event.commitment.category,
+                            description = "Pago de ${event.title}" + if (notes.isNotBlank()) " ($notes)" else "",
+                            date = Timestamp(newPaidDate),
+                            commitmentId = event.commitment.id,
+                            isFixedExpense = true,
+                            notes = notes.trim().ifBlank { null }
+                        )
+                        repository.addTransaction(currentUserId, newTx, exchangeRates.value)
+                    }
+                } else if (event.isIncome) {
+                    if (newAccount != null && newAccount.id.isNotBlank() && newAccount.id != "EXTERNAL") {
+                        val newTx = Transaction(
+                            userId = currentUserId,
+                            accountId = newAccount.id,
+                            type = "INCOME",
+                            amount = newAmount,
+                            currency = event.currency.name,
+                            description = event.title + if (notes.isNotBlank()) " ($notes)" else "",
+                            date = Timestamp(newPaidDate),
+                            notes = notes.trim().ifBlank { null }
+                        )
+                        repository.addTransaction(currentUserId, newTx, exchangeRates.value)
+                    }
+                }
+
+                val accName = newAccount?.name ?: "Dinero Externo"
+                _userMessage.value = UiMessage.Success("Pago actualizado a $accName")
+            } catch (e: Exception) {
+                _errorMessage.value = "Error al editar pago: ${e.localizedMessage}"
+            }
+        }
+    }
+
+    private fun isSameDay(d1: Date, d2: Date): Boolean {
+        val c1 = Calendar.getInstance().apply { time = d1 }
+        val c2 = Calendar.getInstance().apply { time = d2 }
+        return c1.get(Calendar.YEAR) == c2.get(Calendar.YEAR) &&
+               c1.get(Calendar.DAY_OF_YEAR) == c2.get(Calendar.DAY_OF_YEAR)
     }
 
     // Transfer surplus or emergency funds between operating cash and savings

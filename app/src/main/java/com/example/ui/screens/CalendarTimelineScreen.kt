@@ -88,6 +88,7 @@ import com.example.data.model.Transaction
 import com.example.data.model.TransactionType
 import com.example.ui.FinanceViewModel
 import com.example.ui.components.ConfirmPaymentDialog
+import com.example.ui.components.EventDetailDialog
 import com.example.ui.components.formatCurrency
 import com.example.ui.components.formatDate
 import com.example.ui.theme.AccentAmber
@@ -311,6 +312,8 @@ fun MonthlyCalendarView(
     var selectedDayOfMonth by remember { mutableStateOf<Int?>(null) }
     var statusFilter by remember { mutableStateOf("PENDING") } // PENDING, PAID, ALL
     var pendingPaymentEvent by remember { mutableStateOf<PlannedEvent?>(null) }
+    var selectedEventForDetail by remember { mutableStateOf<PlannedEvent?>(null) }
+    var eventToEditPayment by remember { mutableStateOf<PlannedEvent?>(null) }
 
     val monthStart = remember(calendarMonth) {
         (calendarMonth.clone() as Calendar).apply {
@@ -604,6 +607,9 @@ fun MonthlyCalendarView(
                     displayCurrency = displayCurrency,
                     rates = rates,
                     showBalanceAfter = false,
+                    onCardClick = {
+                        selectedEventForDetail = event
+                    },
                     onToggleReady = {
                         if (event.isPaid) {
                             toggleEventReady(viewModel, event, accounts)
@@ -618,6 +624,75 @@ fun MonthlyCalendarView(
         item {
             Spacer(modifier = Modifier.height(60.dp))
         }
+    }
+
+    selectedEventForDetail?.let { event ->
+        EventDetailDialog(
+            event = event,
+            displayCurrency = displayCurrency,
+            rates = rates,
+            accounts = accounts,
+            transactions = transactions,
+            onDismiss = { selectedEventForDetail = null },
+            onEditPayment = {
+                val toEdit = event
+                selectedEventForDetail = null
+                eventToEditPayment = toEdit
+            },
+            onToggleReady = {
+                selectedEventForDetail = null
+                if (event.isPaid) {
+                    toggleEventReady(viewModel, event, accounts)
+                } else {
+                    pendingPaymentEvent = event
+                }
+            }
+        )
+    }
+
+    eventToEditPayment?.let { event ->
+        val matchedTx = remember(event, transactions) {
+            if (event.transactionId != null) {
+                transactions.firstOrNull { it.id == event.transactionId }
+            } else if (event.commitment != null && event.installmentNumber != null) {
+                transactions.firstOrNull {
+                    it.commitmentId == event.commitment.id &&
+                    it.description.contains("Cuota ${event.installmentNumber}/")
+                }
+            } else if (!event.isIncome && event.commitment != null) {
+                transactions.firstOrNull {
+                    it.commitmentId == event.commitment.id
+                }
+            } else if (event.isIncome) {
+                transactions.firstOrNull {
+                    it.type == "INCOME" && (it.amount == event.amount || it.description.contains(event.title))
+                }
+            } else null
+        }
+
+        ConfirmPaymentDialog(
+            title = event.title,
+            suggestedAmount = matchedTx?.amount ?: event.amount,
+            currencyCode = event.currency.name,
+            dueDate = event.dueDate,
+            accounts = accounts,
+            isIncome = event.isIncome,
+            isEditMode = true,
+            initialAccountId = matchedTx?.accountId ?: "EXTERNAL",
+            initialPaidDate = matchedTx?.date?.toDate() ?: event.dueDate,
+            initialNotes = matchedTx?.notes ?: "",
+            onDismiss = { eventToEditPayment = null },
+            onConfirm = { account: Account?, paidDate: Date, amount: Double, notes: String ->
+                viewModel.editEventPayment(
+                    event = event,
+                    newAccount = account,
+                    newPaidDate = paidDate,
+                    newAmount = amount,
+                    notes = notes
+                )
+                eventToEditPayment = null
+            }
+        )
     }
 
     pendingPaymentEvent?.let { event ->
@@ -833,6 +908,8 @@ fun PaymentPlanProjectionView(
     // Toggle: Savings sweep before each income if available funds exceed cushion
     var enableSavingsSweep by remember { mutableStateOf(true) }
     var pendingPaymentEvent by remember { mutableStateOf<PlannedEvent?>(null) }
+    var selectedEventForDetail by remember { mutableStateOf<PlannedEvent?>(null) }
+    var eventToEditPayment by remember { mutableStateOf<PlannedEvent?>(null) }
 
     fun showPicker(current: Date, onSelected: (Date) -> Unit) {
         val cal = Calendar.getInstance().apply { time = current }
@@ -1310,6 +1387,9 @@ fun PaymentPlanProjectionView(
                         rates = rates,
                         showBalanceAfter = true,
                         cushionAmount = cushionAmount,
+                        onCardClick = {
+                            selectedEventForDetail = event
+                        },
                         onToggleReady = {
                             if (event.isPaid) {
                                 toggleEventReady(viewModel, event, accounts)
@@ -1325,6 +1405,75 @@ fun PaymentPlanProjectionView(
         item {
             Spacer(modifier = Modifier.height(60.dp))
         }
+    }
+
+    selectedEventForDetail?.let { event ->
+        EventDetailDialog(
+            event = event,
+            displayCurrency = displayCurrency,
+            rates = rates,
+            accounts = accounts,
+            transactions = transactions,
+            onDismiss = { selectedEventForDetail = null },
+            onEditPayment = {
+                val toEdit = event
+                selectedEventForDetail = null
+                eventToEditPayment = toEdit
+            },
+            onToggleReady = {
+                selectedEventForDetail = null
+                if (event.isPaid) {
+                    toggleEventReady(viewModel, event, accounts)
+                } else {
+                    pendingPaymentEvent = event
+                }
+            }
+        )
+    }
+
+    eventToEditPayment?.let { event ->
+        val matchedTx = remember(event, transactions) {
+            if (event.transactionId != null) {
+                transactions.firstOrNull { it.id == event.transactionId }
+            } else if (event.commitment != null && event.installmentNumber != null) {
+                transactions.firstOrNull {
+                    it.commitmentId == event.commitment.id &&
+                    it.description.contains("Cuota ${event.installmentNumber}/")
+                }
+            } else if (!event.isIncome && event.commitment != null) {
+                transactions.firstOrNull {
+                    it.commitmentId == event.commitment.id
+                }
+            } else if (event.isIncome) {
+                transactions.firstOrNull {
+                    it.type == "INCOME" && (it.amount == event.amount || it.description.contains(event.title))
+                }
+            } else null
+        }
+
+        ConfirmPaymentDialog(
+            title = event.title,
+            suggestedAmount = matchedTx?.amount ?: event.amount,
+            currencyCode = event.currency.name,
+            dueDate = event.dueDate,
+            accounts = accounts,
+            isIncome = event.isIncome,
+            isEditMode = true,
+            initialAccountId = matchedTx?.accountId ?: "EXTERNAL",
+            initialPaidDate = matchedTx?.date?.toDate() ?: event.dueDate,
+            initialNotes = matchedTx?.notes ?: "",
+            onDismiss = { eventToEditPayment = null },
+            onConfirm = { account: Account?, paidDate: Date, amount: Double, notes: String ->
+                viewModel.editEventPayment(
+                    event = event,
+                    newAccount = account,
+                    newPaidDate = paidDate,
+                    newAmount = amount,
+                    notes = notes
+                )
+                eventToEditPayment = null
+            }
+        )
     }
 
     pendingPaymentEvent?.let { event ->
@@ -1484,6 +1633,7 @@ fun PlannedEventItemCard(
     rates: ExchangeRates,
     showBalanceAfter: Boolean,
     cushionAmount: Double = 0.0,
+    onCardClick: () -> Unit = {},
     onToggleReady: () -> Unit
 ) {
     val amountInDisp = rates.convert(event.amount, event.currency, displayCurrency)
@@ -1491,7 +1641,9 @@ fun PlannedEventItemCard(
     val iconColor = if (event.isIncome) EmeraldLight else if (event.isFixed) AccentAmber else AccentRed
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCardClick() },
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (event.isPaid) SlateCard.copy(alpha = 0.65f) else SlateCard
@@ -1953,7 +2105,7 @@ private fun generatePlannedEvents(
     // 3. Transactions recorded in this range (only add if not already matched to a planned event)
     val matchedTxIds = events.mapNotNull { it.transactionId }.toSet()
     transactions.forEach { tx ->
-        if (tx.id !in matchedTxIds) {
+        if (tx.id !in matchedTxIds && tx.commitmentId.isNullOrBlank()) {
             val txDate = tx.date.toDate()
             if (txDate.time in startMs..endMs) {
                 val isInc = tx.type == TransactionType.INCOME.name
