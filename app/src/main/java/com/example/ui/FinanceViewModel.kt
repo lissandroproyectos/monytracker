@@ -16,6 +16,7 @@ import com.example.data.model.InstallmentPayment
 import com.example.data.model.MarketTemplate
 import com.example.data.model.PaymentMode
 import com.example.data.model.Transaction
+import com.example.data.model.TransactionType
 import com.example.data.model.UserSettings
 import com.example.data.repository.FinanceRepository
 import com.example.ui.components.CelebrationData
@@ -714,21 +715,36 @@ class FinanceViewModel(
     }
 
     // Transfer surplus or emergency funds between operating cash and savings
-    fun transferSavings(fromAccount: Account, toAccount: Account, amount: Double) {
+    fun transferSavings(
+        fromAccount: Account,
+        toAccount: Account,
+        amount: Double,
+        notes: String? = null
+    ) {
         viewModelScope.launch {
             try {
+                var actualToAccount = toAccount
+                if (actualToAccount.id.isBlank()) {
+                    val newId = repository.createAccount(currentUserId, actualToAccount)
+                    actualToAccount = actualToAccount.copy(id = newId)
+                }
+
+                val roundedAmount = kotlin.math.round(amount * 100.0) / 100.0
+
                 val tx = Transaction(
                     userId = currentUserId,
                     accountId = fromAccount.id,
-                    targetAccountId = toAccount.id,
+                    targetAccountId = actualToAccount.id,
                     type = "TRANSFER",
-                    amount = amount,
+                    amount = roundedAmount,
                     currency = fromAccount.currency,
-                    description = if (toAccount.isSavings) "Reserva a Fondo de Ahorro / Colchón" else "Retiro de emergencia desde Ahorros",
+                    description = notes?.ifBlank { null }
+                        ?: if (actualToAccount.isSavings) "Reserva a Fondo de Ahorro / Colchón" else "Retiro de emergencia desde Ahorros",
                     date = Timestamp.now()
                 )
                 repository.addTransaction(currentUserId, tx, exchangeRates.value)
-                _userMessage.value = UiMessage.Success("Transferencia de fondos realizada con éxito")
+                val curr = AppCurrency.fromCode(fromAccount.currency)
+                _userMessage.value = UiMessage.Success("Transferidos ${formatCurrency(roundedAmount, curr.symbol)} de ${fromAccount.name} a ${actualToAccount.name}")
             } catch (e: Exception) {
                 _errorMessage.value = "Error en transferencia: ${e.localizedMessage}"
             }
@@ -871,27 +887,61 @@ class FinanceViewModel(
         }
     }
 
-    fun applySavingsSweep(amount: Double, currency: AppCurrency, note: String) {
+    fun applySavingsSweep(
+        amount: Double,
+        currency: AppCurrency,
+        note: String,
+        fromAccountId: String? = null,
+        toAccountId: String? = null
+    ) {
         viewModelScope.launch {
             try {
-                val savingsAcc = accounts.value.firstOrNull { it.isSavings }
-                    ?: accounts.value.firstOrNull { it.name.contains("Ahorro", ignoreCase = true) }
-                    ?: accounts.value.firstOrNull()
-                
-                if (savingsAcc != null) {
-                    addTransaction(
-                        com.example.data.model.Transaction(
-                            userId = currentUserId,
-                            accountId = savingsAcc.id,
-                            type = com.example.data.model.TransactionType.TRANSFER.name,
-                            amount = amount,
-                            currency = currency.name,
-                            description = "💰 Cuota de Ahorro: $note",
-                            category = "Ahorro",
-                            date = com.google.firebase.Timestamp.now()
-                        )
+                var savingsAcc = if (!toAccountId.isNullOrBlank()) {
+                    accounts.value.firstOrNull { it.id == toAccountId }
+                } else {
+                    accounts.value.firstOrNull { it.isSavings }
+                        ?: accounts.value.firstOrNull { it.name.contains("Ahorro", ignoreCase = true) }
+                }
+
+                if (savingsAcc == null) {
+                    val newSavings = Account(
+                        userId = currentUserId,
+                        name = "Fondo de Ahorro / Colchón",
+                        type = AccountType.SAVINGS.name,
+                        currency = currency.name,
+                        isSavings = true,
+                        colorHex = "#8B5CF6",
+                        iconName = "savings"
                     )
-                    _userMessage.value = UiMessage.Success("Guardado $amount ${currency.symbol} en ${savingsAcc.name}")
+                    val newId = repository.createAccount(currentUserId, newSavings)
+                    savingsAcc = newSavings.copy(id = newId)
+                }
+
+                val sourceAcc = if (!fromAccountId.isNullOrBlank()) {
+                    accounts.value.firstOrNull { it.id == fromAccountId }
+                } else {
+                    accounts.value.filter { !it.isSavings && !it.isPlanStartAccount }
+                        .maxByOrNull { it.currentBalance }
+                        ?: accounts.value.firstOrNull { !it.isSavings }
+                }
+
+                if (sourceAcc != null) {
+                    val amountInSource = exchangeRates.value.convert(amount, currency, AppCurrency.fromCode(sourceAcc.currency))
+                    val roundedAmount = kotlin.math.round(amountInSource * 100.0) / 100.0
+                    val tx = Transaction(
+                        userId = currentUserId,
+                        accountId = sourceAcc.id,
+                        targetAccountId = savingsAcc.id,
+                        type = TransactionType.TRANSFER.name,
+                        amount = roundedAmount,
+                        currency = sourceAcc.currency,
+                        description = "💰 Cuota de Ahorro (Excedente): $note",
+                        category = "Ahorro",
+                        date = Timestamp.now()
+                    )
+                    repository.addTransaction(currentUserId, tx, exchangeRates.value)
+                    val srcCurr = AppCurrency.fromCode(sourceAcc.currency)
+                    _userMessage.value = UiMessage.Success("Guardados ${formatCurrency(roundedAmount, srcCurr.symbol)} en ${savingsAcc.name} desde ${sourceAcc.name}")
                 }
             } catch (e: Exception) {
                 _errorMessage.value = "Error aplicando barrido de ahorro: ${e.localizedMessage}"

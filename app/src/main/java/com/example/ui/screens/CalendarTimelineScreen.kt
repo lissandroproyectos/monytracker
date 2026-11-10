@@ -89,6 +89,7 @@ import com.example.data.model.TransactionType
 import com.example.ui.FinanceViewModel
 import com.example.ui.components.ConfirmPaymentDialog
 import com.example.ui.components.EventDetailDialog
+import com.example.ui.components.TransferSurplusDialog
 import com.example.ui.components.formatCurrency
 import com.example.ui.components.formatDate
 import com.example.ui.theme.AccentAmber
@@ -910,6 +911,8 @@ fun PaymentPlanProjectionView(
     var pendingPaymentEvent by remember { mutableStateOf<PlannedEvent?>(null) }
     var selectedEventForDetail by remember { mutableStateOf<PlannedEvent?>(null) }
     var eventToEditPayment by remember { mutableStateOf<PlannedEvent?>(null) }
+    var showTransferSurplusDialog by remember { mutableStateOf(false) }
+    var surplusAmountToTransfer by remember { mutableStateOf(0.0) }
 
     fun showPicker(current: Date, onSelected: (Date) -> Unit) {
         val cal = Calendar.getInstance().apply { time = current }
@@ -994,11 +997,57 @@ fun PaymentPlanProjectionView(
             }
         }
 
+        // 3. Final Sweep at the end of the simulation period so operating accounts remain at cushion
+        if (enableSavingsSweep && runningAvailable > cushionAmount) {
+            val finalExcess = kotlin.math.round((runningAvailable - cushionAmount) * 100.0) / 100.0
+            if (finalExcess >= 1.0) {
+                runningAvailable = kotlin.math.round((runningAvailable - finalExcess) * 100.0) / 100.0
+                results.add(
+                    PlannedEvent(
+                        id = "sweep_final_period",
+                        title = "Cuota de Ahorro Final (Remanente del Plan)",
+                        dueDate = endDate,
+                        amount = finalExcess,
+                        currency = displayCurrency,
+                        isFixed = false,
+                        isIncome = false,
+                        isSavingsSweep = true,
+                        isPaid = false,
+                        installmentInfo = "Excedente final a Ahorros",
+                        availableBalanceAfter = runningAvailable,
+                        sweepExcessAmount = finalExcess
+                    )
+                )
+            }
+        }
+
         results
     }
 
     val finalAvailableBalance = simulatedTimeline.lastOrNull()?.availableBalanceAfter ?: initialAvailable
-    val totalProjectedSavingsSweeps = simulatedTimeline.filter { it.isSavingsSweep }.sumOf { it.amount }
+
+    val operatingAccounts = remember(accounts) { accounts.filter { !it.isSavings && !it.isPlanStartAccount } }
+    val savingsAccounts = remember(accounts) { accounts.filter { it.isSavings } }
+
+    val currentSavingsTotal = remember(savingsAccounts, rates, displayCurrency) {
+        val total = savingsAccounts.sumOf { acc ->
+            rates.convert(acc.currentBalance, AppCurrency.fromCode(acc.currency), displayCurrency)
+        }
+        kotlin.math.round(total * 100.0) / 100.0
+    }
+
+    val totalProjectedSavingsSweeps = remember(simulatedTimeline) {
+        val sum = simulatedTimeline.filter { it.isSavingsSweep }.sumOf { it.amount }
+        kotlin.math.round(sum * 100.0) / 100.0
+    }
+
+    val estimatedTotalSavingsAtEndOfPlan = remember(currentSavingsTotal, totalProjectedSavingsSweeps) {
+        kotlin.math.round((currentSavingsTotal + totalProjectedSavingsSweeps) * 100.0) / 100.0
+    }
+
+    val immediateSurplusToday = remember(initialAvailable, cushionAmount) {
+        kotlin.math.round((initialAvailable - cushionAmount).coerceAtLeast(0.0) * 100.0) / 100.0
+    }
 
     // -----------------------------------------------------------------------------------------
     // CÁLCULO DE MONTO PARA INICIO DEL PLAN (Desde inicio de plan hasta el 1er ingreso)
@@ -1300,6 +1349,49 @@ fun PaymentPlanProjectionView(
                         }
                     }
 
+                    if (immediateSurplusToday >= 1.0) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFF2E1065).copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.4f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "💡 Excedente actual en cuentas hoy",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFA78BFA)
+                                    )
+                                    Text(
+                                        text = "Superas tu colchón por ${formatCurrency(immediateSurplusToday, displayCurrency.symbol)}. Puedes apartarlo a Ahorros ahora.",
+                                        fontSize = 10.sp,
+                                        color = TextSecondaryDark
+                                    )
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                Button(
+                                    onClick = {
+                                        surplusAmountToTransfer = immediateSurplusToday
+                                        showTransferSurplusDialog = true
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED)),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(34.dp).testTag("sweep_current_surplus_btn")
+                                ) {
+                                    Text("Apartar", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
                     // Simulation summary stats
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1328,6 +1420,151 @@ fun PaymentPlanProjectionView(
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // Dedicated Card: ESTIMACIÓN DE AHORRO AL FINAL DEL PLAN
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().testTag("plan_savings_estimate_card"),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1B4B))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF8B5CF6).copy(alpha = 0.25f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Savings, contentDescription = null, tint = Color(0xFFA78BFA), modifier = Modifier.size(18.dp))
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Estimación de Ahorro al Final del Plan",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "Destinando lo que sobre en cuentas a tu fondo",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFFA5B4FC)
+                                )
+                            }
+                        }
+
+                        if (totalProjectedSavingsSweeps > 0 && currentSavingsTotal > 0) {
+                            val growthPct = ((totalProjectedSavingsSweeps / currentSavingsTotal) * 100).toInt()
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFF7C3AED).copy(alpha = 0.4f)
+                            ) {
+                                Text(
+                                    text = "+$growthPct% Ahorro",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFFDDD6FE),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Hero Estimated Total
+                    Column {
+                        Text(
+                            text = "Total estimado que tendrás ahorrado:",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFC7D2FE)
+                        )
+                        Text(
+                            text = formatCurrency(estimatedTotalSavingsAtEndOfPlan, displayCurrency.symbol),
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFC4B5FD)
+                        )
+                    }
+
+                    // 3 Pillars Breakdown
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // 1. Current Savings
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF0F172A).copy(alpha = 0.6f)
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text("Ahorro Hoy", fontSize = 9.sp, color = TextSecondaryDark)
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = formatCurrency(currentSavingsTotal, displayCurrency.symbol),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = TextPrimaryDark
+                                )
+                            }
+                        }
+
+                        // 2. Projected Sweeps
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF0F172A).copy(alpha = 0.6f)
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text("Nuevos Ahorros", fontSize = 9.sp, color = Color(0xFFA78BFA))
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = "+${formatCurrency(totalProjectedSavingsSweeps, displayCurrency.symbol)}",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = Color(0xFFA78BFA)
+                                )
+                            }
+                        }
+
+                        // 3. Maintained Operating Accounts
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF0F172A).copy(alpha = 0.6f)
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text("Cuentas al Final", fontSize = 9.sp, color = EmeraldLight)
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = formatCurrency(finalAvailableBalance, displayCurrency.symbol),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = EmeraldLight
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "💡 Tus cuentas corrientes se mantienen estables en tu colchón (${formatCurrency(cushionAmount, displayCurrency.symbol)}) para cubrir tus gastos y compromisos. Todo excedente va a tu ahorro.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFE0E7FF).copy(alpha = 0.85f),
+                        fontSize = 10.sp
+                    )
                 }
             }
         }
@@ -1372,11 +1609,8 @@ fun PaymentPlanProjectionView(
                         cushionAmount = cushionAmount,
                         displayCurrency = displayCurrency,
                         onApplySweep = {
-                            viewModel.applySavingsSweep(
-                                amount = event.amount,
-                                currency = event.currency,
-                                note = "Excedente antes de cobro"
-                            )
+                            surplusAmountToTransfer = event.amount
+                            showTransferSurplusDialog = true
                         }
                     )
                 } else {
@@ -1523,6 +1757,21 @@ fun PaymentPlanProjectionView(
                     )
                 }
                 pendingPaymentEvent = null
+            }
+        )
+    }
+
+    if (showTransferSurplusDialog) {
+        TransferSurplusDialog(
+            suggestedAmount = surplusAmountToTransfer,
+            displayCurrency = displayCurrency,
+            operatingAccounts = operatingAccounts,
+            savingsAccounts = savingsAccounts,
+            rates = rates,
+            onDismiss = { showTransferSurplusDialog = false },
+            onConfirm = { fromAcc, toAcc, amount, notes ->
+                viewModel.transferSavings(fromAcc, toAcc, amount, notes)
+                showTransferSurplusDialog = false
             }
         )
     }

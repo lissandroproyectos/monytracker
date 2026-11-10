@@ -91,6 +91,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Savings
+import androidx.compose.material.icons.filled.Security
 import com.example.data.model.ProjectedInstallment
 import com.google.firebase.Timestamp
 import java.util.Calendar
@@ -4120,4 +4122,262 @@ fun EventDetailDialog(
         }
     }
 }
+
+// Dialog to transfer excess cash from an operating account to a savings account
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TransferSurplusDialog(
+    suggestedAmount: Double,
+    displayCurrency: AppCurrency,
+    operatingAccounts: List<Account>,
+    savingsAccounts: List<Account>,
+    rates: ExchangeRates,
+    onDismiss: () -> Unit,
+    onConfirm: (fromAccount: Account, toAccount: Account, amount: Double, notes: String) -> Unit
+) {
+    var amountText by remember { mutableStateOf(String.format(Locale.US, "%.2f", suggestedAmount)) }
+
+    val validOperatingAccounts = remember(operatingAccounts) {
+        operatingAccounts.filter { !it.isSavings && !it.isPlanStartAccount && it.currentBalance > 0 }
+    }
+
+    var selectedFromAccountId by remember {
+        mutableStateOf(validOperatingAccounts.maxByOrNull { it.currentBalance }?.id ?: validOperatingAccounts.firstOrNull()?.id ?: "")
+    }
+
+    var selectedToAccountId by remember {
+        mutableStateOf(savingsAccounts.firstOrNull()?.id ?: "")
+    }
+
+    var notes by remember { mutableStateOf("Destinar excedente a Fondo de Ahorro") }
+    var fromExpanded by remember { mutableStateOf(false) }
+    var toExpanded by remember { mutableStateOf(false) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.6f))
+                .systemBarsPadding()
+                .imePadding()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("transfer_surplus_dialog"),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = SlateCard)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // Header
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF8B5CF6).copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Savings, contentDescription = null, tint = Color(0xFFA78BFA), modifier = Modifier.size(20.dp))
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Destinar Excedente a Ahorros",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimaryDark
+                                )
+                                Text(
+                                    text = "Estabiliza cuentas y haz crecer tus ahorros",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondaryDark
+                                )
+                            }
+                        }
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = TextSecondaryDark)
+                        }
+                    }
+
+                    // Explanatory Banner
+                    Surface(
+                        color = Color(0xFF1E1B4B),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Security, contentDescription = null, tint = Color(0xFFA5B4FC), modifier = Modifier.size(24.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                text = "Al transferir lo que sobra por encima de tus compromisos y colchón, tus cuentas corrientes se mantienen en su nivel ideal y tus ahorros crecen con seguridad.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFC7D2FE),
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    // Amount input
+                    OutlinedTextField(
+                        value = amountText,
+                        onValueChange = { amountText = it },
+                        label = { Text("Monto a enviar a Ahorros (${displayCurrency.displayName})") },
+                        prefix = { Text("${displayCurrency.symbol} ") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    // Origin Operating Account Dropdown
+                    ExposedDropdownMenuBox(
+                        expanded = fromExpanded,
+                        onExpandedChange = { fromExpanded = it }
+                    ) {
+                        val selectedFrom = validOperatingAccounts.find { it.id == selectedFromAccountId }
+                        val label = if (selectedFrom != null) {
+                            val curr = AppCurrency.fromCode(selectedFrom.currency)
+                            "${selectedFrom.name} • Saldo: ${formatCurrency(selectedFrom.currentBalance, curr.symbol)}"
+                        } else "Seleccionar cuenta operativa de origen"
+
+                        OutlinedTextField(
+                            value = label,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("¿De qué cuenta sale el dinero?") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = fromExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = fromExpanded,
+                            onDismissRequest = { fromExpanded = false }
+                        ) {
+                            validOperatingAccounts.forEach { acc ->
+                                val curr = AppCurrency.fromCode(acc.currency)
+                                DropdownMenuItem(
+                                    text = { Text("${acc.name} (${acc.currency}) • Saldo: ${formatCurrency(acc.currentBalance, curr.symbol)}") },
+                                    onClick = {
+                                        selectedFromAccountId = acc.id
+                                        fromExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    // Destination Savings Account Dropdown
+                    ExposedDropdownMenuBox(
+                        expanded = toExpanded,
+                        onExpandedChange = { toExpanded = it }
+                    ) {
+                        val selectedTo = savingsAccounts.find { it.id == selectedToAccountId }
+                        val label = if (selectedTo != null) {
+                            val curr = AppCurrency.fromCode(selectedTo.currency)
+                            "${selectedTo.name} • Saldo: ${formatCurrency(selectedTo.currentBalance, curr.symbol)}"
+                        } else if (savingsAccounts.isNotEmpty()) {
+                            "Seleccionar cuenta de ahorros destino"
+                        } else {
+                            "Crear automáticamente: Fondo de Ahorro / Colchón"
+                        }
+
+                        OutlinedTextField(
+                            value = label,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("¿A qué cuenta de ahorros entra?") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = toExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        )
+                        if (savingsAccounts.isNotEmpty()) {
+                            ExposedDropdownMenu(
+                                expanded = toExpanded,
+                                onDismissRequest = { toExpanded = false }
+                            ) {
+                                savingsAccounts.forEach { acc ->
+                                    val curr = AppCurrency.fromCode(acc.currency)
+                                    DropdownMenuItem(
+                                        text = { Text("${acc.name} (${acc.currency}) • Saldo: ${formatCurrency(acc.currentBalance, curr.symbol)}") },
+                                        onClick = {
+                                            selectedToAccountId = acc.id
+                                            toExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Optional Notes
+                    OutlinedTextField(
+                        value = notes,
+                        onValueChange = { notes = it },
+                        label = { Text("Nota u observación (opcional)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Action Buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                            Text("Cancelar", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Button(
+                            onClick = {
+                                val amt = amountText.toDoubleOrNull() ?: suggestedAmount
+                                val fromAcc = validOperatingAccounts.find { it.id == selectedFromAccountId }
+                                    ?: validOperatingAccounts.firstOrNull()
+                                val toAcc = savingsAccounts.find { it.id == selectedToAccountId }
+                                    ?: savingsAccounts.firstOrNull()
+                                if (fromAcc != null && toAcc != null) {
+                                    onConfirm(fromAcc, toAcc, amt, notes.trim())
+                                } else if (fromAcc != null) {
+                                    val fallbackSavings = Account(
+                                        name = "Fondo de Ahorro / Colchón",
+                                        type = AccountType.SAVINGS.name,
+                                        currency = fromAcc.currency,
+                                        isSavings = true,
+                                        colorHex = "#8B5CF6",
+                                        iconName = "savings"
+                                    )
+                                    onConfirm(fromAcc, fallbackSavings, amt, notes.trim())
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED)),
+                            modifier = Modifier.weight(1.3f).testTag("confirm_transfer_surplus_btn")
+                        ) {
+                            Icon(Icons.Default.Savings, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Transferir a Ahorros", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 
