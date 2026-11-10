@@ -17,6 +17,7 @@ import com.example.data.model.Transaction
 import com.example.data.model.TransactionType
 import com.example.data.model.UserSettings
 import com.google.firebase.Timestamp
+import java.util.Date
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -234,18 +235,18 @@ class FinanceRepository(
         )
         docRef.set(transactionWithId.toMap()).await()
 
-        val accountDoc = firestore.collection("users").document(userId).collection("accounts").document(transaction.accountId)
         val delta = when (transaction.type) {
             TransactionType.INCOME.name -> transaction.amount
             TransactionType.EXPENSE.name -> -transaction.amount
             TransactionType.TRANSFER.name -> -transaction.amount
             else -> 0.0
         }
-        if (delta != 0.0) {
+        if (delta != 0.0 && transaction.accountId.isNotBlank() && transaction.accountId != "EXTERNAL") {
+            val accountDoc = firestore.collection("users").document(userId).collection("accounts").document(transaction.accountId)
             accountDoc.update("currentBalance", FieldValue.increment(delta)).await()
         }
 
-        if (transaction.type == TransactionType.TRANSFER.name && !transaction.targetAccountId.isNullOrBlank()) {
+        if (transaction.type == TransactionType.TRANSFER.name && !transaction.targetAccountId.isNullOrBlank() && transaction.targetAccountId != "EXTERNAL") {
             val targetDoc = firestore.collection("users").document(userId).collection("accounts").document(transaction.targetAccountId)
             targetDoc.update("currentBalance", FieldValue.increment(transaction.amount)).await()
         }
@@ -260,12 +261,12 @@ class FinanceRepository(
                 TransactionType.TRANSFER.name -> transaction.amount
                 else -> 0.0
             }
-            if (revertDelta != 0.0) {
+            if (revertDelta != 0.0 && transaction.accountId.isNotBlank() && transaction.accountId != "EXTERNAL") {
                 _localAccounts.value = _localAccounts.value.map { acc ->
                     if (acc.id == transaction.accountId) acc.copy(currentBalance = acc.currentBalance + revertDelta) else acc
                 }
             }
-            if (transaction.type == TransactionType.TRANSFER.name && !transaction.targetAccountId.isNullOrBlank()) {
+            if (transaction.type == TransactionType.TRANSFER.name && !transaction.targetAccountId.isNullOrBlank() && transaction.targetAccountId != "EXTERNAL") {
                 _localAccounts.value = _localAccounts.value.map { acc ->
                     if (acc.id == transaction.targetAccountId) acc.copy(currentBalance = acc.currentBalance - transaction.amount) else acc
                 }
@@ -275,17 +276,17 @@ class FinanceRepository(
         }
 
         firestore.collection("users").document(userId).collection("transactions").document(transaction.id).delete().await()
-        val accountDoc = firestore.collection("users").document(userId).collection("accounts").document(transaction.accountId)
         val revertDelta = when (transaction.type) {
             TransactionType.INCOME.name -> -transaction.amount
             TransactionType.EXPENSE.name -> transaction.amount
             TransactionType.TRANSFER.name -> transaction.amount
             else -> 0.0
         }
-        if (revertDelta != 0.0) {
+        if (revertDelta != 0.0 && transaction.accountId.isNotBlank() && transaction.accountId != "EXTERNAL") {
+            val accountDoc = firestore.collection("users").document(userId).collection("accounts").document(transaction.accountId)
             accountDoc.update("currentBalance", FieldValue.increment(revertDelta)).await()
         }
-        if (transaction.type == TransactionType.TRANSFER.name && !transaction.targetAccountId.isNullOrBlank()) {
+        if (transaction.type == TransactionType.TRANSFER.name && !transaction.targetAccountId.isNullOrBlank() && transaction.targetAccountId != "EXTERNAL") {
             val targetDoc = firestore.collection("users").document(userId).collection("accounts").document(transaction.targetAccountId)
             targetDoc.update("currentBalance", FieldValue.increment(-transaction.amount)).await()
         }
@@ -367,7 +368,8 @@ class FinanceRepository(
         installmentNumber: Long,
         markAsPaid: Boolean,
         payFromAccount: Account? = null,
-        rates: ExchangeRates? = null
+        rates: ExchangeRates? = null,
+        paidDate: Date? = null
     ) {
         val currentInstallments = commitment.getProjectedInstallments().toMutableList()
         val index = currentInstallments.indexOfFirst { it.number == installmentNumber }
@@ -376,9 +378,10 @@ class FinanceRepository(
         val target = currentInstallments[index]
         if (target.isPaid == markAsPaid) return
 
+        val effectivePaidDate = paidDate ?: Date()
         val updatedInstallment = target.copy(
             isPaid = markAsPaid,
-            paidDate = if (markAsPaid) Timestamp.now() else null
+            paidDate = if (markAsPaid) Timestamp(effectivePaidDate) else null
         )
         currentInstallments[index] = updatedInstallment
 
@@ -404,7 +407,7 @@ class FinanceRepository(
                 currency = commitment.currency,
                 category = commitment.category,
                 description = "Cuota $installmentNumber/${commitment.totalInstallments}: ${commitment.title}",
-                date = Timestamp.now(),
+                date = Timestamp(effectivePaidDate),
                 commitmentId = commitment.id,
                 isFixedExpense = commitment.isFixedExpense
             )
@@ -416,7 +419,7 @@ class FinanceRepository(
         userId: String,
         payment: InstallmentPayment,
         commitment: ExpenseCommitment,
-        account: Account,
+        account: Account?,
         rates: ExchangeRates? = null
     ) {
         require(payment.amount > 0)
@@ -433,7 +436,7 @@ class FinanceRepository(
         if (unpaidFirst != -1) {
             currentInstallments[unpaidFirst] = currentInstallments[unpaidFirst].copy(
                 isPaid = true,
-                paidDate = Timestamp.now()
+                paidDate = payment.paymentDate
             )
         }
 
@@ -452,20 +455,23 @@ class FinanceRepository(
             else -> "Pago: ${commitment.title}"
         }
 
-        val transaction = Transaction(
-            userId = userId,
-            accountId = payment.accountId,
-            type = TransactionType.EXPENSE.name,
-            amount = payment.amount,
-            currency = commitment.currency,
-            category = commitment.category,
-            description = paymentDesc,
-            date = payment.paymentDate,
-            commitmentId = commitment.id,
-            isFixedExpense = commitment.isFixedExpense,
-            notes = payment.notes
-        )
-        addTransaction(userId, transaction, rates)
+        // Only create an expense transaction if an account was selected and not external money
+        if (account != null && payment.accountId.isNotBlank() && payment.accountId != "EXTERNAL") {
+            val transaction = Transaction(
+                userId = userId,
+                accountId = payment.accountId,
+                type = TransactionType.EXPENSE.name,
+                amount = payment.amount,
+                currency = commitment.currency,
+                category = commitment.category,
+                description = paymentDesc,
+                date = payment.paymentDate,
+                commitmentId = commitment.id,
+                isFixedExpense = commitment.isFixedExpense,
+                notes = payment.notes
+            )
+            addTransaction(userId, transaction, rates)
+        }
     }
 
     // Marketplace Templates

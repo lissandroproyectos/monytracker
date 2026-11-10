@@ -510,7 +510,7 @@ class FinanceViewModel(
         }
     }
 
-    fun payCommitment(payment: InstallmentPayment, commitment: ExpenseCommitment, account: Account) {
+    fun payCommitment(payment: InstallmentPayment, commitment: ExpenseCommitment, account: Account?) {
         viewModelScope.launch {
             try {
                 val newRemaining = (commitment.remainingAmount - payment.amount).coerceAtLeast(0.0)
@@ -518,7 +518,8 @@ class FinanceViewModel(
                 val commCurrency = AppCurrency.fromCode(commitment.currency)
 
                 repository.recordPayment(currentUserId, payment, commitment, account, exchangeRates.value)
-                _userMessage.value = UiMessage.Success("Pago registrado y debitado de ${account.name}")
+                val accMsg = if (account != null) "debitado de ${account.name}" else "registrado con dinero externo (sin debitar cuentas)"
+                _userMessage.value = UiMessage.Success("Pago $accMsg")
 
                 val title = if (isPaidOff) "¡Felicidades! 🎉 ¡Deuda Saldada!" else "¡Pago Registrado! 🎊"
                 val message = if (isPaidOff) {
@@ -546,7 +547,13 @@ class FinanceViewModel(
         }
     }
 
-    fun toggleInstallment(commitment: ExpenseCommitment, installmentNumber: Long, markAsPaid: Boolean, payFromAccount: Account?) {
+    fun toggleInstallment(
+        commitment: ExpenseCommitment,
+        installmentNumber: Long,
+        markAsPaid: Boolean,
+        payFromAccount: Account?,
+        paidDate: Date? = null
+    ) {
         viewModelScope.launch {
             try {
                 val currentInstallments = commitment.getProjectedInstallments()
@@ -560,10 +567,12 @@ class FinanceViewModel(
                     installmentNumber,
                     markAsPaid,
                     payFromAccount,
-                    exchangeRates.value
+                    exchangeRates.value,
+                    paidDate
                 )
                 val statusText = if (markAsPaid) "marcada como pagada" else "marcada como pendiente"
-                _userMessage.value = UiMessage.Success("Cuota #$installmentNumber $statusText")
+                val accText = payFromAccount?.let { " (${it.name})" } ?: " (dinero externo)"
+                _userMessage.value = UiMessage.Success("Cuota #$installmentNumber $statusText$accText")
 
                 if (willBeAllPaid) {
                     val commCurrency = AppCurrency.fromCode(commitment.currency)

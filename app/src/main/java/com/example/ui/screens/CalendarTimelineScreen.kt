@@ -87,6 +87,7 @@ import com.example.data.model.Frequency
 import com.example.data.model.Transaction
 import com.example.data.model.TransactionType
 import com.example.ui.FinanceViewModel
+import com.example.ui.components.ConfirmPaymentDialog
 import com.example.ui.components.formatCurrency
 import com.example.ui.components.formatDate
 import com.example.ui.theme.AccentAmber
@@ -309,6 +310,7 @@ fun MonthlyCalendarView(
 
     var selectedDayOfMonth by remember { mutableStateOf<Int?>(null) }
     var statusFilter by remember { mutableStateOf("PENDING") } // PENDING, PAID, ALL
+    var pendingPaymentEvent by remember { mutableStateOf<PlannedEvent?>(null) }
 
     val monthStart = remember(calendarMonth) {
         (calendarMonth.clone() as Calendar).apply {
@@ -603,7 +605,11 @@ fun MonthlyCalendarView(
                     rates = rates,
                     showBalanceAfter = false,
                     onToggleReady = {
-                        toggleEventReady(viewModel, event, accounts)
+                        if (event.isPaid) {
+                            toggleEventReady(viewModel, event, accounts)
+                        } else {
+                            pendingPaymentEvent = event
+                        }
                     }
                 )
             }
@@ -612,6 +618,57 @@ fun MonthlyCalendarView(
         item {
             Spacer(modifier = Modifier.height(60.dp))
         }
+    }
+
+    pendingPaymentEvent?.let { event ->
+        ConfirmPaymentDialog(
+            title = event.title,
+            suggestedAmount = event.amount,
+            currencyCode = event.currency.name,
+            dueDate = event.dueDate,
+            accounts = accounts,
+            isIncome = event.isIncome,
+            onDismiss = { pendingPaymentEvent = null },
+            onConfirm = { account: Account?, paidDate: Date, amount: Double, notes: String ->
+                if (event.commitment != null && event.installmentNumber != null) {
+                    viewModel.toggleInstallment(
+                        commitment = event.commitment,
+                        installmentNumber = event.installmentNumber,
+                        markAsPaid = true,
+                        payFromAccount = account,
+                        paidDate = paidDate
+                    )
+                } else if (!event.isIncome && event.commitment != null) {
+                    viewModel.addTransaction(
+                        Transaction(
+                            userId = viewModel.currentUserId,
+                            accountId = account?.id ?: "",
+                            type = TransactionType.EXPENSE.name,
+                            amount = amount,
+                            currency = event.currency.name,
+                            category = event.commitment.category,
+                            description = "Pago de ${event.title}" + if (notes.isNotBlank()) " ($notes)" else "",
+                            date = Timestamp(paidDate),
+                            commitmentId = event.commitment.id,
+                            isFixedExpense = true
+                        )
+                    )
+                } else if (event.isIncome) {
+                    viewModel.addTransaction(
+                        Transaction(
+                            userId = viewModel.currentUserId,
+                            accountId = account?.id ?: "",
+                            type = TransactionType.INCOME.name,
+                            amount = amount,
+                            currency = event.currency.name,
+                            description = event.title + if (notes.isNotBlank()) " ($notes)" else "",
+                            date = Timestamp(paidDate)
+                        )
+                    )
+                }
+                pendingPaymentEvent = null
+            }
+        )
     }
 }
 
@@ -775,6 +832,7 @@ fun PaymentPlanProjectionView(
 
     // Toggle: Savings sweep before each income if available funds exceed cushion
     var enableSavingsSweep by remember { mutableStateOf(true) }
+    var pendingPaymentEvent by remember { mutableStateOf<PlannedEvent?>(null) }
 
     fun showPicker(current: Date, onSelected: (Date) -> Unit) {
         val cal = Calendar.getInstance().apply { time = current }
@@ -1251,7 +1309,11 @@ fun PaymentPlanProjectionView(
                         showBalanceAfter = true,
                         cushionAmount = cushionAmount,
                         onToggleReady = {
-                            toggleEventReady(viewModel, event, accounts)
+                            if (event.isPaid) {
+                                toggleEventReady(viewModel, event, accounts)
+                            } else {
+                                pendingPaymentEvent = event
+                            }
                         }
                     )
                 }
@@ -1261,6 +1323,57 @@ fun PaymentPlanProjectionView(
         item {
             Spacer(modifier = Modifier.height(60.dp))
         }
+    }
+
+    pendingPaymentEvent?.let { event ->
+        ConfirmPaymentDialog(
+            title = event.title,
+            suggestedAmount = event.amount,
+            currencyCode = event.currency.name,
+            dueDate = event.dueDate,
+            accounts = accounts,
+            isIncome = event.isIncome,
+            onDismiss = { pendingPaymentEvent = null },
+            onConfirm = { account: Account?, paidDate: Date, amount: Double, notes: String ->
+                if (event.commitment != null && event.installmentNumber != null) {
+                    viewModel.toggleInstallment(
+                        commitment = event.commitment,
+                        installmentNumber = event.installmentNumber,
+                        markAsPaid = true,
+                        payFromAccount = account,
+                        paidDate = paidDate
+                    )
+                } else if (!event.isIncome && event.commitment != null) {
+                    viewModel.addTransaction(
+                        Transaction(
+                            userId = viewModel.currentUserId,
+                            accountId = account?.id ?: "",
+                            type = TransactionType.EXPENSE.name,
+                            amount = amount,
+                            currency = event.currency.name,
+                            category = event.commitment.category,
+                            description = "Pago de ${event.title}" + if (notes.isNotBlank()) " ($notes)" else "",
+                            date = Timestamp(paidDate),
+                            commitmentId = event.commitment.id,
+                            isFixedExpense = true
+                        )
+                    )
+                } else if (event.isIncome) {
+                    viewModel.addTransaction(
+                        Transaction(
+                            userId = viewModel.currentUserId,
+                            accountId = account?.id ?: "",
+                            type = TransactionType.INCOME.name,
+                            amount = amount,
+                            currency = event.currency.name,
+                            description = event.title + if (notes.isNotBlank()) " ($notes)" else "",
+                            date = Timestamp(paidDate)
+                        )
+                    )
+                }
+                pendingPaymentEvent = null
+            }
+        )
     }
 }
 
@@ -1871,54 +1984,57 @@ private fun isSameDay(d1: Date, d2: Date): Boolean {
            c1.get(Calendar.DAY_OF_YEAR) == c2.get(Calendar.DAY_OF_YEAR)
 }
 
-// Helper: Toggle event ready status
+// Helper: Toggle event ready status (Used for unchecking / desmarcar completed items)
 private fun toggleEventReady(
     viewModel: FinanceViewModel,
     event: PlannedEvent,
     accounts: List<Account>
 ) {
+    if (!event.isPaid) return
+
+    // 1. If explicit transaction ID exists, delete it
     if (event.transactionId != null) {
-        // Uncheck item by deleting the existing transaction
         val txToDelete = viewModel.transactions.value.firstOrNull { it.id == event.transactionId }
         if (txToDelete != null) {
             viewModel.deleteTransaction(txToDelete)
+            return
         }
-    } else if (event.commitment != null && event.installmentNumber != null) {
+    }
+
+    // 2. If it's an installment of a commitment, mark it unpaid
+    if (event.commitment != null && event.installmentNumber != null) {
         viewModel.toggleInstallment(
             commitment = event.commitment,
             installmentNumber = event.installmentNumber,
-            markAsPaid = !event.isPaid,
-            payFromAccount = accounts.firstOrNull()
+            markAsPaid = false,
+            payFromAccount = null
         )
-    } else if (!event.isIncome && event.commitment != null) {
-        // Fixed expense occurrence toggle
-        viewModel.addTransaction(
-            Transaction(
-                userId = viewModel.currentUserId,
-                accountId = accounts.firstOrNull()?.id ?: "",
-                type = TransactionType.EXPENSE.name,
-                amount = event.amount,
-                currency = event.currency.name,
-                category = event.commitment.category,
-                description = "Pago de ${event.title}",
-                date = Timestamp(event.dueDate),
-                commitmentId = event.commitment.id,
-                isFixedExpense = true
-            )
-        )
-    } else if (event.isIncome) {
-        // Register income as realized
-        viewModel.addTransaction(
-            Transaction(
-                userId = viewModel.currentUserId,
-                accountId = accounts.firstOrNull()?.id ?: "",
-                type = TransactionType.INCOME.name,
-                amount = event.amount,
-                currency = event.currency.name,
-                description = event.title,
-                date = Timestamp(event.dueDate)
-            )
-        )
+        return
+    }
+
+    // 3. If it's a periodic income, delete the matching income transaction
+    if (event.isIncome) {
+        val txToDelete = viewModel.transactions.value.firstOrNull { tx ->
+            tx.type == TransactionType.INCOME.name &&
+            (event.transactionId == tx.id ||
+             (tx.amount == event.amount && isSameDay(tx.date.toDate(), event.dueDate)))
+        }
+        if (txToDelete != null) {
+            viewModel.deleteTransaction(txToDelete)
+        }
+        return
+    }
+
+    // 4. If it's a fixed expense, delete the matching expense transaction
+    if (!event.isIncome && event.commitment != null) {
+        val txToDelete = viewModel.transactions.value.firstOrNull { tx ->
+            tx.commitmentId == event.commitment.id &&
+            (event.transactionId == tx.id || isSameDay(tx.date.toDate(), event.dueDate))
+        }
+        if (txToDelete != null) {
+            viewModel.deleteTransaction(txToDelete)
+        }
+        return
     }
 }
 

@@ -396,8 +396,8 @@ fun MainApp(
             rates = rates,
             displayCurrency = health.displayCurrency,
             onDismiss = { commitmentToInspectInstallments = null },
-            onToggleInstallment = { number, isPaid, account ->
-                viewModel.toggleInstallment(comm, number, isPaid, account)
+            onToggleInstallment = { number, isPaid, account, paidDate ->
+                viewModel.toggleInstallment(comm, number, isPaid, account, paidDate)
             },
             onEdit = { commitmentToEditInDialog = comm },
             onDelete = { commitmentToDeleteInDialog = comm },

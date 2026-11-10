@@ -269,7 +269,7 @@ fun AddAccountDialog(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(0.92f)
+                    .fillMaxHeight(0.88f)
                     .testTag("add_account_dialog"),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = SlateCard)
@@ -523,70 +523,77 @@ fun AddAccountDialog(
                     }
 
                     // Pinned Footer Actions
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    Surface(
+                        color = SlateCard,
+                        tonalElevation = 3.dp,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        OutlinedButton(
-                            onClick = onDismiss,
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 4.dp)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Cancelar", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
+                            OutlinedButton(
+                                onClick = onDismiss,
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
+                            ) {
+                                Text("Cancelar", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
+                            }
 
-                        if (onDelete != null) {
+                            if (onDelete != null) {
+                                Button(
+                                    onClick = {
+                                        onDelete()
+                                        onDismiss()
+                                    },
+                                    modifier = Modifier.weight(1f).testTag("delete_account_dialog_btn"),
+                                    colors = ButtonDefaults.buttonColors(containerColor = AccentRed),
+                                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
+                                ) {
+                                    Text("Eliminar", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
+                                }
+                            }
+
                             Button(
                                 onClick = {
-                                    onDelete()
-                                    onDismiss()
-                                },
-                                modifier = Modifier.weight(1f).testTag("delete_account_dialog_btn"),
-                                colors = ButtonDefaults.buttonColors(containerColor = AccentRed),
-                                contentPadding = PaddingValues(horizontal = 4.dp)
-                            ) {
-                                Text("Eliminar", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-
-                        Button(
-                            onClick = {
-                                val parsed = balanceText.toDoubleOrNull() ?: 0.0
-                                val parsedPeriodicAmount = periodicIncomeAmountText.toDoubleOrNull() ?: 0.0
-                                val parsedDay = periodicDayOfMonthText.toIntOrNull() ?: 15
-                                if (name.isNotBlank()) {
-                                    onSave(
-                                        Account(
-                                            id = accountToEdit?.id ?: "",
-                                            userId = accountToEdit?.userId ?: "",
-                                            name = name.trim(),
-                                            type = selectedType.name,
-                                            currentBalance = parsed,
-                                            initialBalance = if (accountToEdit != null) accountToEdit.initialBalance else parsed,
-                                            currency = selectedCurrency.name,
-                                            colorHex = selectedColor,
-                                            iconName = selectedType.iconRes,
-                                            isSavings = isSavings,
-                                            hasPeriodicIncome = hasPeriodicIncome,
-                                            periodicIncomeAmount = parsedPeriodicAmount,
-                                            periodicIncomeCurrency = selectedCurrency.name,
-                                            periodicIncomeFrequency = periodicFreq,
-                                            periodicIncomeDayOfMonth = parsedDay.coerceIn(1, 31),
-                                            periodicIncomeDescription = periodicIncomeDesc.trim().ifBlank { "Sueldo" },
-                                            createdAt = accountToEdit?.createdAt
+                                    val parsed = balanceText.toDoubleOrNull() ?: 0.0
+                                    val parsedPeriodicAmount = periodicIncomeAmountText.toDoubleOrNull() ?: 0.0
+                                    val parsedDay = periodicDayOfMonthText.toIntOrNull() ?: 15
+                                    if (name.isNotBlank()) {
+                                        onSave(
+                                            Account(
+                                                id = accountToEdit?.id ?: "",
+                                                userId = accountToEdit?.userId ?: "",
+                                                name = name.trim(),
+                                                type = selectedType.name,
+                                                currentBalance = parsed,
+                                                initialBalance = if (accountToEdit != null) accountToEdit.initialBalance else parsed,
+                                                currency = selectedCurrency.name,
+                                                colorHex = selectedColor,
+                                                iconName = selectedType.iconRes,
+                                                isSavings = isSavings,
+                                                hasPeriodicIncome = hasPeriodicIncome,
+                                                periodicIncomeAmount = parsedPeriodicAmount,
+                                                periodicIncomeCurrency = selectedCurrency.name,
+                                                periodicIncomeFrequency = periodicFreq,
+                                                periodicIncomeDayOfMonth = parsedDay.coerceIn(1, 31),
+                                                periodicIncomeDescription = periodicIncomeDesc.trim().ifBlank { "Sueldo" },
+                                                createdAt = accountToEdit?.createdAt
+                                            )
                                         )
-                                    )
-                                    onDismiss()
-                                }
-                            },
-                            enabled = name.isNotBlank(),
-                            modifier = Modifier.weight(1.1f).testTag("save_account_btn"),
-                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
-                            contentPadding = PaddingValues(horizontal = 4.dp)
-                        ) {
-                            Text(if (accountToEdit != null) "Actualizar" else "Guardar", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        onDismiss()
+                                    }
+                                },
+                                enabled = name.isNotBlank(),
+                                modifier = Modifier.weight(1.1f).testTag("save_account_btn"),
+                                colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
+                            ) {
+                                Text(if (accountToEdit != null) "Actualizar" else "Guardar", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
+                            }
                         }
                     }
                 }
@@ -3162,7 +3169,7 @@ fun PayCommitmentDialog(
     commitment: ExpenseCommitment,
     accounts: List<Account>,
     onDismiss: () -> Unit,
-    onConfirm: (InstallmentPayment, Account) -> Unit
+    onConfirm: (InstallmentPayment, Account?) -> Unit
 ) {
     val suggestedAmount = if (commitment.paymentMode == PaymentMode.INSTALLMENTS.name) {
         commitment.installmentAmount.coerceAtMost(commitment.remainingAmount)
@@ -3179,156 +3186,230 @@ fun PayCommitmentDialog(
             commitment.accountId?.takeIf { id -> payAccounts.any { it.id == id } }
                 ?: payAccounts.firstOrNull { it.isPlanStartAccount }?.id
                 ?: payAccounts.firstOrNull()?.id
-                ?: ""
+                ?: "EXTERNAL"
         )
     }
+    var selectedDate by remember { mutableStateOf(Date()) }
     var accountExpanded by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
     var notes by remember { mutableStateOf("") }
 
+    val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()) }
     val amount = amountText.toDoubleOrNull() ?: 0.0
-    val selectedAccount = payAccounts.find { it.id == selectedAccountId } ?: payAccounts.firstOrNull()
+    val selectedAccount = payAccounts.find { it.id == selectedAccountId }
+
+    if (showDatePicker) {
+        val cal = Calendar.getInstance().apply { time = selectedDate }
+        val context = LocalContext.current
+        android.app.DatePickerDialog(
+            context,
+            { _, year, month, dayOfMonth ->
+                val newCal = Calendar.getInstance().apply {
+                    set(Calendar.YEAR, year)
+                    set(Calendar.MONTH, month)
+                    set(Calendar.DAY_OF_MONTH, dayOfMonth)
+                }
+                selectedDate = newCal.time
+                showDatePicker = false
+            },
+            cal.get(Calendar.YEAR),
+            cal.get(Calendar.MONTH),
+            cal.get(Calendar.DAY_OF_MONTH)
+        ).apply {
+            setOnCancelListener { showDatePicker = false }
+            show()
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
     ) {
-        Card(
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 10.dp)
-                .testTag("pay_dialog"),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = SlateCard)
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.6f))
+                .systemBarsPadding()
+                .imePadding()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Column(
+            Card(
                 modifier = Modifier
-                    .padding(20.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                    .fillMaxWidth()
+                    .testTag("pay_dialog"),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = SlateCard)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier
+                        .padding(20.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Text(
-                        text = "Registrar Pago / Abono",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimaryDark
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = TextSecondaryDark)
-                    }
-                }
-
-                Surface(
-                    color = SlateBackground,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
-                            text = commitment.title,
-                            style = MaterialTheme.typography.titleMedium,
+                            text = "Registrar Pago / Abono",
+                            style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimaryDark
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Saldo pendiente: ${formatCurrency(commitment.remainingAmount, commCurrency.symbol)}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = AccentAmber
-                        )
-                        if (commitment.paymentMode == PaymentMode.INSTALLMENTS.name) {
-                            Text(
-                                text = "Cuota planificada: ${commitment.paidInstallments + 1} de ${commitment.totalInstallments}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TextSecondaryDark
-                            )
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = TextSecondaryDark)
                         }
                     }
-                }
 
-                OutlinedTextField(
-                    value = amountText,
-                    onValueChange = { amountText = it },
-                    label = { Text("Monto en ${commCurrency.symbol}") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.fillMaxWidth().testTag("payment_amount_input"),
-                    singleLine = true
-                )
-
-                // Select Debit Account
-                ExposedDropdownMenuBox(
-                    expanded = accountExpanded,
-                    onExpandedChange = { accountExpanded = it }
-                ) {
-                    val accName = selectedAccount?.name ?: "Selecciona cuenta a debitar"
-                    OutlinedTextField(
-                        value = "$accName (${selectedAccount?.currency ?: ""})",
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Debitar de Cuenta") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = accountExpanded) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(
-                        expanded = accountExpanded,
-                        onDismissRequest = { accountExpanded = false }
+                    Surface(
+                        color = SlateBackground,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        payAccounts.forEach { acc ->
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text(
+                                text = commitment.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimaryDark
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Saldo pendiente: ${formatCurrency(commitment.remainingAmount, commCurrency.symbol)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = AccentAmber
+                            )
+                            if (commitment.paymentMode == PaymentMode.INSTALLMENTS.name) {
+                                Text(
+                                    text = "Cuota planificada: ${commitment.paidInstallments + 1} de ${commitment.totalInstallments}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondaryDark
+                                )
+                            }
+                        }
+                    }
+
+                    // Select Debit Account
+                    ExposedDropdownMenuBox(
+                        expanded = accountExpanded,
+                        onExpandedChange = { accountExpanded = it }
+                    ) {
+                        val accountLabel = if (selectedAccountId == "EXTERNAL") {
+                            "🌐 Dinero Externo (Sin afectar mis cuentas)"
+                        } else if (selectedAccount != null) {
+                            "${selectedAccount.name} (${selectedAccount.currency}) • Saldo: ${selectedAccount.currentBalance}"
+                        } else {
+                            "Seleccionar cuenta a debitar"
+                        }
+
+                        OutlinedTextField(
+                            value = accountLabel,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("¿De qué cuenta salió el pago?") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = accountExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = accountExpanded,
+                            onDismissRequest = { accountExpanded = false }
+                        ) {
                             DropdownMenuItem(
-                                text = { Text("${acc.name} (${acc.currency}) • Saldo: ${acc.currentBalance}") },
+                                text = {
+                                    Column {
+                                        Text("🌐 Dinero Externo", fontWeight = FontWeight.Bold)
+                                        Text("No descuenta saldo de ninguna cuenta registrada", fontSize = 11.sp, color = TextSecondaryDark)
+                                    }
+                                },
                                 onClick = {
-                                    selectedAccountId = acc.id
+                                    selectedAccountId = "EXTERNAL"
                                     accountExpanded = false
                                 }
                             )
+                            HorizontalDivider(color = SlateBackground)
+                            payAccounts.forEach { acc ->
+                                DropdownMenuItem(
+                                    text = { Text("${acc.name} (${acc.currency}) • Saldo: ${acc.currentBalance}") },
+                                    onClick = {
+                                        selectedAccountId = acc.id
+                                        accountExpanded = false
+                                    }
+                                )
+                            }
                         }
                     }
-                }
 
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    label = { Text("Nota de comprobante / memo (opcional)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                        Text("Cancelar")
-                    }
-                    Button(
-                        onClick = {
-                            if (amount > 0 && selectedAccount != null) {
-                                onConfirm(
-                                    InstallmentPayment(
-                                        commitmentId = commitment.id,
-                                        accountId = selectedAccount.id,
-                                        amount = amount,
-                                        currency = commitment.currency,
-                                        installmentNumber = commitment.paidInstallments + 1L,
-                                        paymentDate = Timestamp.now(),
-                                        notes = notes.trim().ifBlank { null }
-                                    ),
-                                    selectedAccount
-                                )
-                                onDismiss()
+                    // Date Selection Field
+                    OutlinedTextField(
+                        value = dateFormat.format(selectedDate),
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Fecha de Pago") },
+                        trailingIcon = {
+                            IconButton(onClick = { showDatePicker = true }) {
+                                Icon(Icons.Default.CreditCard, contentDescription = "Seleccionar fecha", tint = EmeraldLight)
                             }
                         },
-                        enabled = amount > 0 && selectedAccount != null,
-                        modifier = Modifier.weight(1f).testTag("confirm_payment_btn"),
-                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showDatePicker = true }
+                    )
+
+                    OutlinedTextField(
+                        value = amountText,
+                        onValueChange = { amountText = it },
+                        label = { Text("Monto en ${commCurrency.symbol}") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth().testTag("payment_amount_input"),
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        value = notes,
+                        onValueChange = { notes = it },
+                        label = { Text("Nota de comprobante / memo (opcional)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text("Confirmar Pago")
+                        OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                            Text("Cancelar")
+                        }
+                        Button(
+                            onClick = {
+                                if (amount > 0 && (selectedAccountId == "EXTERNAL" || selectedAccount != null)) {
+                                    onConfirm(
+                                        InstallmentPayment(
+                                            commitmentId = commitment.id,
+                                            accountId = selectedAccount?.id ?: "",
+                                            amount = amount,
+                                            currency = commitment.currency,
+                                            installmentNumber = commitment.paidInstallments + 1L,
+                                            paymentDate = Timestamp(selectedDate),
+                                            notes = notes.trim().ifBlank { null }
+                                        ),
+                                        selectedAccount
+                                    )
+                                    onDismiss()
+                                }
+                            },
+                            enabled = amount > 0 && (selectedAccountId == "EXTERNAL" || selectedAccount != null),
+                            modifier = Modifier.weight(1f).testTag("confirm_payment_btn"),
+                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                        ) {
+                            Text("Confirmar Pago")
+                        }
                     }
                 }
             }
@@ -3442,6 +3523,252 @@ fun ShareTemplateDialog(
                         modifier = Modifier.weight(1f).testTag("publish_template_btn")
                     ) {
                         Text("Publicar")
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Dialog to confirm account, date, and amount when marking an event as paid / collected
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ConfirmPaymentDialog(
+    title: String,
+    suggestedAmount: Double,
+    currencyCode: String,
+    dueDate: Date,
+    accounts: List<Account>,
+    isIncome: Boolean = false,
+    onDismiss: () -> Unit,
+    onConfirm: (account: Account?, paidDate: Date, amount: Double, notes: String) -> Unit
+) {
+    val currency = AppCurrency.fromCode(currencyCode)
+    var amountText by remember { mutableStateOf(String.format(Locale.US, "%.2f", suggestedAmount)) }
+
+    val payAccounts = remember(accounts) {
+        accounts.filter { !it.isPlanStartAccount || it.currentBalance > 0 }
+    }
+
+    // selectedAccountId == "EXTERNAL" means Dinero Externo / Sin Afectar Cuentas
+    var selectedAccountId by remember {
+        mutableStateOf(
+            payAccounts.firstOrNull { it.isPlanStartAccount }?.id
+                ?: payAccounts.firstOrNull()?.id
+                ?: "EXTERNAL"
+        )
+    }
+
+    var selectedDate by remember { mutableStateOf(dueDate) }
+    var notes by remember { mutableStateOf("") }
+    var accountExpanded by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
+
+    val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()) }
+
+    if (showDatePicker) {
+        val cal = Calendar.getInstance().apply { time = selectedDate }
+        val context = LocalContext.current
+        android.app.DatePickerDialog(
+            context,
+            { _, year, month, dayOfMonth ->
+                val newCal = Calendar.getInstance().apply {
+                    set(Calendar.YEAR, year)
+                    set(Calendar.MONTH, month)
+                    set(Calendar.DAY_OF_MONTH, dayOfMonth)
+                }
+                selectedDate = newCal.time
+                showDatePicker = false
+            },
+            cal.get(Calendar.YEAR),
+            cal.get(Calendar.MONTH),
+            cal.get(Calendar.DAY_OF_MONTH)
+        ).apply {
+            setOnCancelListener { showDatePicker = false }
+            show()
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.6f))
+                .systemBarsPadding()
+                .imePadding()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.88f)
+                    .testTag("confirm_payment_dialog"),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = SlateCard)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(18.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isIncome) "Confirmar Cobro / Ingreso" else "Registrar Pago / Salida",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimaryDark
+                        )
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = TextSecondaryDark)
+                        }
+                    }
+
+                    // Event Summary Box
+                    Surface(
+                        color = SlateBackground,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimaryDark
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Monto previsto: ${formatCurrency(suggestedAmount, currency.symbol)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (isIncome) EmeraldLight else AccentAmber
+                            )
+                        }
+                    }
+
+                    // Account Selection Dropdown
+                    ExposedDropdownMenuBox(
+                        expanded = accountExpanded,
+                        onExpandedChange = { accountExpanded = it }
+                    ) {
+                        val selectedAcc = payAccounts.find { it.id == selectedAccountId }
+                        val accountLabel = if (selectedAccountId == "EXTERNAL") {
+                            "🌐 Dinero Externo (Sin afectar mis cuentas)"
+                        } else if (selectedAcc != null) {
+                            "${selectedAcc.name} (${selectedAcc.currency}) • Saldo: ${selectedAcc.currentBalance}"
+                        } else {
+                            if (isIncome) "Seleccionar cuenta de destino" else "Seleccionar cuenta de origen"
+                        }
+
+                        OutlinedTextField(
+                            value = accountLabel,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text(if (isIncome) "¿A qué cuenta ingresó el dinero?" else "¿De qué cuenta salió el pago?") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = accountExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = accountExpanded,
+                            onDismissRequest = { accountExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("🌐 Dinero Externo", fontWeight = FontWeight.Bold)
+                                        Text(
+                                            if (isIncome) "No se sumará a ninguna cuenta registrada" else "No descuenta saldo de ninguna cuenta registrada",
+                                            fontSize = 11.sp,
+                                            color = TextSecondaryDark
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    selectedAccountId = "EXTERNAL"
+                                    accountExpanded = false
+                                }
+                            )
+                            HorizontalDivider(color = SlateBackground)
+                            payAccounts.forEach { acc ->
+                                DropdownMenuItem(
+                                    text = { Text("${acc.name} (${acc.currency}) • Saldo: ${acc.currentBalance}") },
+                                    onClick = {
+                                        selectedAccountId = acc.id
+                                        accountExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    // Date Selection Field
+                    OutlinedTextField(
+                        value = dateFormat.format(selectedDate),
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text(if (isIncome) "Fecha de Cobro" else "Fecha de Pago") },
+                        trailingIcon = {
+                            IconButton(onClick = { showDatePicker = true }) {
+                                Icon(Icons.Default.CreditCard, contentDescription = "Seleccionar fecha", tint = EmeraldLight)
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showDatePicker = true }
+                    )
+
+                    // Amount Field
+                    OutlinedTextField(
+                        value = amountText,
+                        onValueChange = { amountText = it },
+                        label = { Text(if (isIncome) "Monto cobrado (${currency.symbol})" else "Monto pagado (${currency.symbol})") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    // Optional Notes
+                    OutlinedTextField(
+                        value = notes,
+                        onValueChange = { notes = it },
+                        label = { Text("Nota u observación (opcional)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Action Buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                            Text("Cancelar", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Button(
+                            onClick = {
+                                val amount = amountText.toDoubleOrNull() ?: suggestedAmount
+                                val account = payAccounts.find { it.id == selectedAccountId }
+                                onConfirm(account, selectedDate, amount, notes.trim())
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                            modifier = Modifier.weight(1.2f).testTag("confirm_payment_btn")
+                        ) {
+                            Text(if (isIncome) "Confirmar Cobro" else "Confirmar Pago", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 }
             }

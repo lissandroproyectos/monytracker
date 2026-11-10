@@ -280,7 +280,7 @@ fun InstallmentsScheduleDialog(
     rates: ExchangeRates,
     displayCurrency: AppCurrency,
     onDismiss: () -> Unit,
-    onToggleInstallment: (Long, Boolean, Account?) -> Unit,
+    onToggleInstallment: (Long, Boolean, Account?, Date?) -> Unit,
     onEdit: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
     onUpdateCommitment: ((ExpenseCommitment) -> Unit)? = null
@@ -293,6 +293,7 @@ fun InstallmentsScheduleDialog(
     }
     var selectedDebitAccountId by remember { mutableStateOf(accounts.firstOrNull()?.id ?: "") }
     val selectedAccount = accounts.find { it.id == selectedDebitAccountId }
+    var pendingCuotaToPay by remember { mutableStateOf<ProjectedInstallment?>(null) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -443,7 +444,11 @@ fun InstallmentsScheduleDialog(
                                     Checkbox(
                                         checked = inst.isPaid,
                                         onCheckedChange = { isChecked ->
-                                            onToggleInstallment(inst.number, isChecked, if (isChecked) selectedAccount else null)
+                                            if (isChecked) {
+                                                pendingCuotaToPay = inst
+                                            } else {
+                                                onToggleInstallment(inst.number, false, null, null)
+                                            }
                                         },
                                         modifier = Modifier.testTag("toggle_inst_${inst.number}")
                                     )
@@ -529,6 +534,22 @@ fun InstallmentsScheduleDialog(
                     Text("Listo")
                 }
             }
+        }
+
+        pendingCuotaToPay?.let { cuota ->
+            ConfirmPaymentDialog(
+                title = "${commitment.title} • Cuota #${cuota.number}",
+                suggestedAmount = cuota.amount,
+                currencyCode = commitment.currency,
+                dueDate = cuota.dueDate.toDate(),
+                accounts = accounts,
+                isIncome = false,
+                onDismiss = { pendingCuotaToPay = null },
+                onConfirm = { account, paidDate, amount, notes ->
+                    onToggleInstallment(cuota.number, true, account, paidDate)
+                    pendingCuotaToPay = null
+                }
+            )
         }
     }
 }
