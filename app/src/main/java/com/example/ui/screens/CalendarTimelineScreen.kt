@@ -124,7 +124,9 @@ data class PlannedEvent(
     val installmentNumber: Long? = null,
     val availableBalanceAfter: Double = 0.0,
     val sweepExcessAmount: Double = 0.0,
-    val transactionId: String? = null
+    val transactionId: String? = null,
+    val surplusBeforeIncome: Double? = null,
+    val runningAvailableBefore: Double? = null
 )
 
 @Composable
@@ -209,7 +211,9 @@ fun CalendarTimelineScreen(
                 transactions = transactions,
                 accounts = accounts,
                 rates = rates,
-                displayCurrency = health.displayCurrency
+                displayCurrency = health.displayCurrency,
+                cushionAmount = settings.safetyCushionAmount,
+                initialAvailable = totalAvailableNow
             )
         } else {
             // VIEW 2: PLAN DE PAGOS & PROYECCIÓN DE FLUJO DE CAJA
@@ -296,7 +300,9 @@ fun MonthlyCalendarView(
     transactions: List<Transaction>,
     accounts: List<Account>,
     rates: ExchangeRates,
-    displayCurrency: AppCurrency
+    displayCurrency: AppCurrency,
+    cushionAmount: Double = 0.0,
+    initialAvailable: Double = 0.0
 ) {
     var calendarMonth by remember {
         mutableStateOf(
@@ -315,6 +321,8 @@ fun MonthlyCalendarView(
     var pendingPaymentEvent by remember { mutableStateOf<PlannedEvent?>(null) }
     var selectedEventForDetail by remember { mutableStateOf<PlannedEvent?>(null) }
     var eventToEditPayment by remember { mutableStateOf<PlannedEvent?>(null) }
+    var showTransferSurplusDialog by remember { mutableStateOf(false) }
+    var surplusAmountToTransfer by remember { mutableStateOf(0.0) }
 
     val monthStart = remember(calendarMonth) {
         (calendarMonth.clone() as Calendar).apply {
@@ -339,7 +347,7 @@ fun MonthlyCalendarView(
         monthFormat.format(calendarMonth.time).replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
     }
 
-    // Compute all planned events for this month
+    // Compute all planned raw events for this month
     val monthEvents = remember(commitments, transactions, accounts, monthStart, monthEnd) {
         generatePlannedEvents(
             commitments = commitments,
@@ -350,22 +358,71 @@ fun MonthlyCalendarView(
         )
     }
 
+    // Perform step-by-step simulation for this month: calculates running available balance, excess before income, and savings sweeps
+    val simulatedMonthEvents = remember(monthEvents, initialAvailable, cushionAmount, rates, displayCurrency) {
+        val results = mutableListOf<PlannedEvent>()
+        var runningAvailable = initialAvailable
+        val sorted = monthEvents.sortedBy { it.dueDate }
+
+        sorted.forEach { event ->
+            val eventAmountInDisp = rates.convert(event.amount, event.currency, displayCurrency)
+            if (event.isIncome) {
+                val excess = (runningAvailable - cushionAmount).coerceAtLeast(0.0)
+                val roundedExcess = kotlin.math.round(excess * 100.0) / 100.0
+                if (roundedExcess >= 1.0) {
+                    runningAvailable = kotlin.math.round((runningAvailable - roundedExcess) * 100.0) / 100.0
+                    results.add(
+                        PlannedEvent(
+                            id = "sweep_before_${event.id}",
+                            title = "Cuota de Ahorro Sugerida (Antes de ${event.title})",
+                            dueDate = event.dueDate,
+                            amount = roundedExcess,
+                            currency = displayCurrency,
+                            isFixed = false,
+                            isIncome = false,
+                            isSavingsSweep = true,
+                            isPaid = false,
+                            installmentInfo = "Excedente a resguardar",
+                            availableBalanceAfter = runningAvailable,
+                            sweepExcessAmount = roundedExcess
+                        )
+                    )
+                }
+                val prevRunning = runningAvailable
+                runningAvailable = kotlin.math.round((runningAvailable + eventAmountInDisp) * 100.0) / 100.0
+                results.add(
+                    event.copy(
+                        availableBalanceAfter = runningAvailable,
+                        surplusBeforeIncome = roundedExcess,
+                        runningAvailableBefore = prevRunning
+                    )
+                )
+            } else {
+                runningAvailable = kotlin.math.round((runningAvailable - eventAmountInDisp) * 100.0) / 100.0
+                results.add(
+                    event.copy(availableBalanceAfter = runningAvailable)
+                )
+            }
+        }
+        results
+    }
+
     // Map of day of month -> events on that day
-    val eventsByDay = remember(monthEvents) {
-        monthEvents.groupBy { event ->
+    val eventsByDay = remember(simulatedMonthEvents) {
+        simulatedMonthEvents.groupBy { event ->
             val cal = Calendar.getInstance().apply { time = event.dueDate }
             cal.get(Calendar.DAY_OF_MONTH)
         }
     }
 
     // Events for selected day (or whole month)
-    val dayEvents = remember(monthEvents, selectedDayOfMonth) {
+    val dayEvents = remember(simulatedMonthEvents, selectedDayOfMonth) {
         if (selectedDayOfMonth != null) {
-            monthEvents.filter { event ->
+            simulatedMonthEvents.filter { event ->
                 val cal = Calendar.getInstance().apply { time = event.dueDate }
                 cal.get(Calendar.DAY_OF_MONTH) == selectedDayOfMonth
             }
-        } else monthEvents
+        } else simulatedMonthEvents
     }
 
     // Filter events by status
@@ -387,6 +444,10 @@ fun MonthlyCalendarView(
         rates.convert(it.amount, it.currency, displayCurrency)
     }
     val monthNetBalance = totalIncomeMonth - totalExpensesMonth
+    val hasDeficitMonth = totalExpensesMonth > totalIncomeMonth || simulatedMonthEvents.any { it.availableBalanceAfter < 0 }
+
+    val operatingAccounts = remember(accounts) { accounts.filter { !it.isSavings && !it.isPlanStartAccount } }
+    val savingsAccounts = remember(accounts) { accounts.filter { it.isSavings } }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -498,9 +559,47 @@ fun MonthlyCalendarView(
                         Text(
                             text = formatCurrency(monthNetBalance, displayCurrency.symbol),
                             fontWeight = FontWeight.Bold,
-                            color = if (monthNetBalance >= 0) EmeraldLight else AccentAmber,
+                            color = if (monthNetBalance >= 0) EmeraldLight else AccentRed,
                             style = MaterialTheme.typography.bodyMedium
                         )
+                    }
+                }
+            }
+        }
+
+        // Financial Deficit Warning Alert Banner
+        if (hasDeficitMonth) {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = AccentRed.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, AccentRed.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth().testTag("monthly_deficit_alert_banner")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = AccentRed, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "🚨 ALERTA FINANCIERA: Los egresos superan los ingresos en $monthTitle",
+                                fontWeight = FontWeight.Bold,
+                                color = AccentRed,
+                                fontSize = 12.sp
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            val diff = totalExpensesMonth - totalIncomeMonth
+                            Text(
+                                text = if (diff > 0)
+                                    "Los egresos previstos (-${formatCurrency(totalExpensesMonth, displayCurrency.symbol)}) superan tus ingresos (+${formatCurrency(totalIncomeMonth, displayCurrency.symbol)}) por ${formatCurrency(diff, displayCurrency.symbol)}. Te recomendamos revisar tus compromisos o inyectar liquidez."
+                                else
+                                    "Tus egresos dejarán temporalmente tus cuentas corrientes en saldo negativo (-$displayCurrency). ¡Atención para evitar sobregiros!",
+                                fontSize = 11.sp,
+                                color = TextPrimaryDark
+                            )
+                        }
                     }
                 }
             }
@@ -603,22 +702,35 @@ fun MonthlyCalendarView(
             }
         } else {
             items(displayedEvents, key = { it.id }) { event ->
-                PlannedEventItemCard(
-                    event = event,
-                    displayCurrency = displayCurrency,
-                    rates = rates,
-                    showBalanceAfter = false,
-                    onCardClick = {
-                        selectedEventForDetail = event
-                    },
-                    onToggleReady = {
-                        if (event.isPaid) {
-                            toggleEventReady(viewModel, event, accounts)
-                        } else {
-                            pendingPaymentEvent = event
+                if (event.isSavingsSweep) {
+                    SavingsSweepCard(
+                        event = event,
+                        cushionAmount = cushionAmount,
+                        displayCurrency = displayCurrency,
+                        onApplySweep = {
+                            surplusAmountToTransfer = event.amount
+                            showTransferSurplusDialog = true
                         }
-                    }
-                )
+                    )
+                } else {
+                    PlannedEventItemCard(
+                        event = event,
+                        displayCurrency = displayCurrency,
+                        rates = rates,
+                        showBalanceAfter = false,
+                        cushionAmount = cushionAmount,
+                        onCardClick = {
+                            selectedEventForDetail = event
+                        },
+                        onToggleReady = {
+                            if (event.isPaid) {
+                                toggleEventReady(viewModel, event, accounts)
+                            } else {
+                                pendingPaymentEvent = event
+                            }
+                        }
+                    )
+                }
             }
         }
 
@@ -743,6 +855,21 @@ fun MonthlyCalendarView(
                     )
                 }
                 pendingPaymentEvent = null
+            }
+        )
+    }
+
+    if (showTransferSurplusDialog) {
+        TransferSurplusDialog(
+            suggestedAmount = surplusAmountToTransfer,
+            displayCurrency = displayCurrency,
+            operatingAccounts = operatingAccounts,
+            savingsAccounts = savingsAccounts,
+            rates = rates,
+            onDismiss = { showTransferSurplusDialog = false },
+            onConfirm = { fromAcc, toAcc, amount, notes ->
+                viewModel.transferSavings(fromAcc, toAcc, amount, notes)
+                showTransferSurplusDialog = false
             }
         )
     }
