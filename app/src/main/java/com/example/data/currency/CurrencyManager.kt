@@ -56,23 +56,28 @@ data class ExchangeRates(
     val error: String? = null
 ) {
     fun convert(amount: Double, from: AppCurrency, to: AppCurrency): Double {
-        if (from == to || amount == 0.0) return amount
+        if (amount == 0.0) return 0.0
 
-        // 1. Convert source amount to base currency (VES)
-        val inBs = when (from) {
-            AppCurrency.VES -> amount
-            AppCurrency.USD_BCV -> amount * dolarBcv
-            AppCurrency.USDT -> amount * usdtParalelo
-            AppCurrency.EUR_BCV -> amount * euroBcv
-        }
+        val raw = if (from == to) {
+            amount
+        } else {
+            // 1. Convert source amount to base currency (VES)
+            val inBs = when (from) {
+                AppCurrency.VES -> amount
+                AppCurrency.USD_BCV -> amount * dolarBcv
+                AppCurrency.USDT -> amount * usdtParalelo
+                AppCurrency.EUR_BCV -> amount * euroBcv
+            }
 
-        // 2. Convert base VES to target currency
-        return when (to) {
-            AppCurrency.VES -> inBs
-            AppCurrency.USD_BCV -> if (dolarBcv > 0) inBs / dolarBcv else 0.0
-            AppCurrency.USDT -> if (usdtParalelo > 0) inBs / usdtParalelo else 0.0
-            AppCurrency.EUR_BCV -> if (euroBcv > 0) inBs / euroBcv else 0.0
+            // 2. Convert base VES to target currency
+            when (to) {
+                AppCurrency.VES -> inBs
+                AppCurrency.USD_BCV -> if (dolarBcv > 0) inBs / dolarBcv else 0.0
+                AppCurrency.USDT -> if (usdtParalelo > 0) inBs / usdtParalelo else 0.0
+                AppCurrency.EUR_BCV -> if (euroBcv > 0) inBs / euroBcv else 0.0
+            }
         }
+        return kotlin.math.round(raw * 100.0) / 100.0
     }
 
     fun format(amount: Double, currency: AppCurrency): String {

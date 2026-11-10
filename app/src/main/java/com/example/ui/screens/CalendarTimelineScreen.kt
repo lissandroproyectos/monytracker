@@ -881,9 +881,9 @@ fun PaymentPlanProjectionView(
             if (event.isIncome) {
                 // RULE: Before each income, check if running available exceeds cushion
                 if (enableSavingsSweep && runningAvailable > cushionAmount) {
-                    val excess = runningAvailable - cushionAmount
+                    val excess = kotlin.math.round((runningAvailable - cushionAmount) * 100.0) / 100.0
                     if (excess >= 1.0) { // meaningful threshold
-                        runningAvailable -= excess
+                        runningAvailable = kotlin.math.round((runningAvailable - excess) * 100.0) / 100.0
                         results.add(
                             PlannedEvent(
                                 id = "sweep_before_${event.id}",
@@ -904,13 +904,13 @@ fun PaymentPlanProjectionView(
                 }
 
                 // Add income to available pool
-                runningAvailable += eventAmountInDisp
+                runningAvailable = kotlin.math.round((runningAvailable + eventAmountInDisp) * 100.0) / 100.0
                 results.add(
                     event.copy(availableBalanceAfter = runningAvailable)
                 )
             } else {
                 // Deduct expense from available pool
-                runningAvailable -= eventAmountInDisp
+                runningAvailable = kotlin.math.round((runningAvailable - eventAmountInDisp) * 100.0) / 100.0
                 results.add(
                     event.copy(availableBalanceAfter = runningAvailable)
                 )
@@ -939,18 +939,20 @@ fun PaymentPlanProjectionView(
     }
 
     val pendingPreIncomeExpenses = remember(preIncomeEvents, rates, displayCurrency) {
-        preIncomeEvents.filter { !it.isPaid }.sumOf { rates.convert(it.amount, it.currency, displayCurrency) }
+        val sum = preIncomeEvents.filter { !it.isPaid }.sumOf { rates.convert(it.amount, it.currency, displayCurrency) }
+        kotlin.math.round(sum * 100.0) / 100.0
     }
 
     val totalPreIncomeExpenses = remember(preIncomeEvents, rates, displayCurrency) {
-        preIncomeEvents.sumOf { rates.convert(it.amount, it.currency, displayCurrency) }
+        val sum = preIncomeEvents.sumOf { rates.convert(it.amount, it.currency, displayCurrency) }
+        kotlin.math.round(sum * 100.0) / 100.0
     }
 
     val amountNeededForZero = pendingPreIncomeExpenses
-    val amountNeededForCushion = pendingPreIncomeExpenses + cushionAmount
-    val deficitForZero = (amountNeededForZero - initialAvailable).coerceAtLeast(0.0)
-    val deficitForCushion = (amountNeededForCushion - initialAvailable).coerceAtLeast(0.0)
-    val balanceAtFirstIncome = initialAvailable - pendingPreIncomeExpenses
+    val amountNeededForCushion = kotlin.math.round((pendingPreIncomeExpenses + cushionAmount) * 100.0) / 100.0
+    val deficitForZero = kotlin.math.round((amountNeededForZero - initialAvailable).coerceAtLeast(0.0) * 100.0) / 100.0
+    val deficitForCushion = kotlin.math.round((amountNeededForCushion - initialAvailable).coerceAtLeast(0.0) * 100.0) / 100.0
+    val balanceAtFirstIncome = kotlin.math.round((initialAvailable - pendingPreIncomeExpenses) * 100.0) / 100.0
 
     var showPreIncomeDetails by remember { mutableStateOf(false) }
 
@@ -2071,7 +2073,7 @@ fun PlanInitialCapitalCard(
         } else 0L
     }
 
-    val targetInjectAmount = if (amountNeededForCushion > 0) amountNeededForCushion else amountNeededForZero
+    val targetInjectAmount = kotlin.math.round((if (amountNeededForCushion > 0) amountNeededForCushion else amountNeededForZero) * 100.0) / 100.0
 
     Card(
         modifier = modifier

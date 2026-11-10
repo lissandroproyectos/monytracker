@@ -416,11 +416,12 @@ class FinanceViewModel(
     fun injectPlanStartCapital(amount: Double, currency: String = AppCurrency.USD_BCV.name) {
         viewModelScope.launch {
             try {
+                val roundedAmount = kotlin.math.round(amount * 100.0) / 100.0
                 val existing = accounts.value.firstOrNull { it.isPlanStartAccount }
                 if (existing != null) {
                     val updated = existing.copy(
-                        currentBalance = amount,
-                        initialBalance = amount,
+                        currentBalance = roundedAmount,
+                        initialBalance = roundedAmount,
                         currency = currency,
                         isSystemAccount = true
                     )
@@ -431,8 +432,8 @@ class FinanceViewModel(
                         userId = currentUserId,
                         name = "Inicio del Plan",
                         type = AccountType.CASH.name,
-                        currentBalance = amount,
-                        initialBalance = amount,
+                        currentBalance = roundedAmount,
+                        initialBalance = roundedAmount,
                         currency = currency,
                         colorHex = "#6366F1",
                         isSavings = false,
@@ -441,7 +442,7 @@ class FinanceViewModel(
                     repository.createAccount(currentUserId, newAcc)
                 }
                 val symbol = AppCurrency.fromCode(currency).symbol
-                val formatted = String.format(Locale.US, "%.2f", amount)
+                val formatted = String.format(Locale.US, "%.2f", roundedAmount)
                 _userMessage.value = UiMessage.Success("Fondo de Inicio del Plan establecido en $symbol $formatted")
             } catch (e: Exception) {
                 _errorMessage.value = "Error al inyectar capital inicial: ${e.localizedMessage}"

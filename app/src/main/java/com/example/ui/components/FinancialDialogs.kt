@@ -228,7 +228,7 @@ fun AddAccountDialog(
         )
     }
     var balanceText by remember {
-        mutableStateOf(if (accountToEdit != null) accountToEdit.currentBalance.toString() else "")
+        mutableStateOf(if (accountToEdit != null) String.format(Locale.US, "%.2f", accountToEdit.currentBalance) else "")
     }
     var isSavings by remember { mutableStateOf(accountToEdit?.isSavings ?: false) }
     var selectedColor by remember { mutableStateOf(accountToEdit?.colorHex ?: COLOR_OPTIONS[0]) }
@@ -236,7 +236,7 @@ fun AddAccountDialog(
     // Periodic Income fields
     var hasPeriodicIncome by remember { mutableStateOf(accountToEdit?.hasPeriodicIncome ?: false) }
     var periodicIncomeAmountText by remember {
-        mutableStateOf(if (accountToEdit != null && accountToEdit.hasPeriodicIncome) accountToEdit.periodicIncomeAmount.toString() else "")
+        mutableStateOf(if (accountToEdit != null && accountToEdit.hasPeriodicIncome) String.format(Locale.US, "%.2f", accountToEdit.periodicIncomeAmount) else "")
     }
     var periodicFreq by remember { mutableStateOf(accountToEdit?.periodicIncomeFrequency ?: "QUINCENAL") }
     var periodicDayOfMonthText by remember {
@@ -1141,7 +1141,7 @@ class AddCommitmentState(
 
     val totalFinancedWithInterest: Double get() = if (effectiveInterestRate > 0) financedBase * (1.0 + effectiveInterestRate / 100.0) else financedBase
     val totalWithInterest: Double get() = downPayment + totalFinancedWithInterest
-    val calculatedInstallmentAmount: Double get() = if (totalInstallments > 0 && totalFinancedWithInterest > 0) totalFinancedWithInterest / totalInstallments else 0.0
+    val calculatedInstallmentAmount: Double get() = if (totalInstallments > 0 && totalFinancedWithInterest > 0) kotlin.math.round((totalFinancedWithInterest / totalInstallments) * 100.0) / 100.0 else 0.0
 
     fun computeActiveSchedule(): List<ProjectedInstallment> {
         return if (customInstallments.isNotEmpty() && customInstallments.size == totalInstallments.toInt()) {
@@ -3302,7 +3302,8 @@ fun PayCommitmentDialog(
                         val accountLabel = if (selectedAccountId == "EXTERNAL") {
                             "🌐 Dinero Externo (Sin afectar mis cuentas)"
                         } else if (selectedAccount != null) {
-                            "${selectedAccount.name} (${selectedAccount.currency}) • Saldo: ${selectedAccount.currentBalance}"
+                            val accCurr = AppCurrency.fromCode(selectedAccount.currency)
+                            "${selectedAccount.name} (${selectedAccount.currency}) • Saldo: ${formatCurrency(selectedAccount.currentBalance, accCurr.symbol)}"
                         } else {
                             "Seleccionar cuenta a debitar"
                         }
@@ -3333,8 +3334,9 @@ fun PayCommitmentDialog(
                             )
                             HorizontalDivider(color = SlateBackground)
                             payAccounts.forEach { acc ->
+                                val accCurr = AppCurrency.fromCode(acc.currency)
                                 DropdownMenuItem(
-                                    text = { Text("${acc.name} (${acc.currency}) • Saldo: ${acc.currentBalance}") },
+                                    text = { Text("${acc.name} (${acc.currency}) • Saldo: ${formatCurrency(acc.currentBalance, accCurr.symbol)}") },
                                     onClick = {
                                         selectedAccountId = acc.id
                                         accountExpanded = false
@@ -3667,7 +3669,8 @@ fun ConfirmPaymentDialog(
                         val accountLabel = if (selectedAccountId == "EXTERNAL") {
                             "🌐 Dinero Externo (Sin afectar mis cuentas)"
                         } else if (selectedAcc != null) {
-                            "${selectedAcc.name} (${selectedAcc.currency}) • Saldo: ${selectedAcc.currentBalance}"
+                            val accCurr = AppCurrency.fromCode(selectedAcc.currency)
+                            "${selectedAcc.name} (${selectedAcc.currency}) • Saldo: ${formatCurrency(selectedAcc.currentBalance, accCurr.symbol)}"
                         } else {
                             if (isIncome) "Seleccionar cuenta de destino" else "Seleccionar cuenta de origen"
                         }
@@ -3702,8 +3705,9 @@ fun ConfirmPaymentDialog(
                             )
                             HorizontalDivider(color = SlateBackground)
                             payAccounts.forEach { acc ->
+                                val accCurr = AppCurrency.fromCode(acc.currency)
                                 DropdownMenuItem(
-                                    text = { Text("${acc.name} (${acc.currency}) • Saldo: ${acc.currentBalance}") },
+                                    text = { Text("${acc.name} (${acc.currency}) • Saldo: ${formatCurrency(acc.currentBalance, accCurr.symbol)}") },
                                     onClick = {
                                         selectedAccountId = acc.id
                                         accountExpanded = false

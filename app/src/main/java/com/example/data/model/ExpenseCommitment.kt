@@ -189,7 +189,8 @@ data class ExpenseCommitment(
 
         val count = totalInstallments.toInt().coerceAtLeast(1)
         val financedAmount = (totalAmount - downPayment).coerceAtLeast(0.0)
-        val singleAmount = if (installmentAmount > 0) installmentAmount else (if (count > 0) financedAmount / count else financedAmount)
+        val rawSingle = if (installmentAmount > 0) installmentAmount else (if (count > 0) financedAmount / count else financedAmount)
+        val singleAmount = kotlin.math.round(rawSingle * 100.0) / 100.0
 
         when (freq) {
             Frequency.WEEKLY -> {
