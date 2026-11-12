@@ -532,6 +532,8 @@ fun AccountItemCard(
     account: Account,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onAddIncome: (() -> Unit)? = null,
+    onAddExpense: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val accCurrency = AppCurrency.fromCode(account.currency)
@@ -557,117 +559,197 @@ fun AccountItemCard(
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = SlateCard)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .padding(16.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(parsedColor.copy(alpha = 0.2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(icon, contentDescription = null, tint = parsedColor, modifier = Modifier.size(24.dp))
-                }
-                Spacer(modifier = Modifier.width(14.dp))
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(parsedColor.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(icon, contentDescription = null, tint = parsedColor, modifier = Modifier.size(24.dp))
+                    }
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = account.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimaryDark
+                            )
+                            if (account.isSavings) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    color = EmeraldDark.copy(alpha = 0.4f),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text(
+                                        text = "Ahorro",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = EmeraldLight,
+                                        fontSize = 9.sp,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
                         Text(
-                            text = account.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = TextPrimaryDark
+                            text = "${accCurrency.flagEmoji} ${accCurrency.displayName}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondaryDark,
+                            fontSize = 11.sp
                         )
-                        if (account.isSavings) {
-                            Spacer(modifier = Modifier.width(6.dp))
+
+                        if (account.hasPeriodicIncome && account.periodicIncomeAmount > 0) {
+                            Spacer(modifier = Modifier.height(4.dp))
                             Surface(
-                                color = EmeraldDark.copy(alpha = 0.4f),
+                                color = EmeraldLight.copy(alpha = 0.15f),
                                 shape = RoundedCornerShape(6.dp)
                             ) {
-                                Text(
-                                    text = "Ahorro",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = EmeraldLight,
-                                    fontSize = 9.sp,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.TrendingUp, contentDescription = null, tint = EmeraldDark, modifier = Modifier.size(12.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "+${formatCurrency(account.periodicIncomeAmount, AppCurrency.fromCode(account.periodicIncomeCurrency).symbol)} (${account.periodicIncomeFrequency.lowercase().replaceFirstChar { it.uppercase() }})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = EmeraldDark,
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 10.sp
+                                    )
+                                }
                             }
                         }
                     }
-                    Text(
-                        text = "${accCurrency.flagEmoji} ${accCurrency.displayName}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondaryDark,
-                        fontSize = 11.sp
-                    )
+                }
 
-                    if (account.hasPeriodicIncome && account.periodicIncomeAmount > 0) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Surface(
-                            color = EmeraldLight.copy(alpha = 0.15f),
-                            shape = RoundedCornerShape(6.dp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            text = formatCurrency(account.currentBalance, accCurrency.symbol),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = if (account.currentBalance >= 0) TextPrimaryDark else AccentRed
+                        )
+                        Text(
+                            text = "Inicial: ${formatCurrency(account.initialBalance, accCurrency.symbol)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondaryDark
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onEdit,
+                        modifier = Modifier.testTag("edit_account_${account.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Editar cuenta",
+                            tint = TextSecondaryDark.copy(alpha = 0.8f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    if (!account.isPlanStartAccount) {
+                        IconButton(
+                            onClick = onDelete,
+                            modifier = Modifier.testTag("delete_account_${account.id}")
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.TrendingUp, contentDescription = null, tint = EmeraldDark, modifier = Modifier.size(12.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "+${formatCurrency(account.periodicIncomeAmount, AppCurrency.fromCode(account.periodicIncomeCurrency).symbol)} (${account.periodicIncomeFrequency.lowercase().replaceFirstChar { it.uppercase() }})",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = EmeraldDark,
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 10.sp
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Eliminar cuenta",
+                                tint = AccentRed.copy(alpha = 0.8f),
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = formatCurrency(account.currentBalance, accCurrency.symbol),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = if (account.currentBalance >= 0) TextPrimaryDark else AccentRed
-                    )
-                    Text(
-                        text = "Inicial: ${formatCurrency(account.initialBalance, accCurrency.symbol)}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondaryDark
-                    )
-                }
-
-                IconButton(
-                    onClick = onEdit,
-                    modifier = Modifier.testTag("edit_account_${account.id}")
+            // Quick action buttons for extra income or extra expense on this specific account
+            if (onAddIncome != null || onAddExpense != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Editar cuenta",
-                        tint = TextSecondaryDark.copy(alpha = 0.8f),
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
+                    if (onAddIncome != null && !account.isPlanStartAccount) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = EmeraldLight.copy(alpha = 0.15f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onAddIncome() }
+                                .testTag("acc_add_income_${account.id}")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(vertical = 7.dp, horizontal = 8.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowUpward,
+                                    contentDescription = null,
+                                    tint = EmeraldLight,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "+ Ingreso Extra",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = EmeraldLight,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
 
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.testTag("delete_account_${account.id}")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Eliminar cuenta",
-                        tint = AccentRed.copy(alpha = 0.8f),
-                        modifier = Modifier.size(18.dp)
-                    )
+                    if (onAddExpense != null) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = AccentRed.copy(alpha = 0.15f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onAddExpense() }
+                                .testTag("acc_add_expense_${account.id}")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(vertical = 7.dp, horizontal = 8.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDownward,
+                                    contentDescription = null,
+                                    tint = AccentRed,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "- Egreso Extra",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = AccentRed,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

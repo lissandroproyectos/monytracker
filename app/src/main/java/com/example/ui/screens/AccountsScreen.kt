@@ -63,10 +63,12 @@ fun AccountsScreen(
     modifier: Modifier = Modifier
 ) {
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
     var showAddAccountDialog by remember { mutableStateOf(false) }
     var accountToEdit by remember { mutableStateOf<Account?>(null) }
     var accountToDelete by remember { mutableStateOf<Account?>(null) }
     var showTransferDialog by remember { mutableStateOf(false) }
+    var selectedTxAccountAndType by remember { mutableStateOf<Pair<String, String?>?>(null) } // Pair(Type, accountId?)
 
     val visibleAccounts = remember(accounts) { accounts.filter { !it.isPlanStartAccount } }
     val totalBalance = visibleAccounts.sumOf { it.currentBalance }
@@ -102,30 +104,54 @@ fun AccountsScreen(
                     )
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Button(
-                            onClick = { showAddAccountDialog = true },
-                            modifier = Modifier.weight(1f).testTag("add_account_btn"),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Nueva Cuenta", fontWeight = FontWeight.SemiBold)
+                            Button(
+                                onClick = { selectedTxAccountAndType = Pair(TransactionType.INCOME.name, null) },
+                                modifier = Modifier.weight(1f).testTag("add_extra_income_btn"),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                            ) {
+                                Text("+ Ingreso Extra", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+
+                            Button(
+                                onClick = { selectedTxAccountAndType = Pair(TransactionType.EXPENSE.name, null) },
+                                modifier = Modifier.weight(1f).testTag("add_extra_expense_btn"),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = com.example.ui.theme.AccentRed)
+                            ) {
+                                Text("- Egreso Extra", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
                         }
 
-                        if (visibleAccounts.size >= 2) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             OutlinedButton(
-                                onClick = { showTransferDialog = true },
-                                modifier = Modifier.weight(1f).testTag("transfer_btn"),
+                                onClick = { showAddAccountDialog = true },
+                                modifier = Modifier.weight(1f).testTag("add_account_btn"),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
-                                Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Transferir", fontWeight = FontWeight.SemiBold)
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Nueva Cuenta", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                            }
+
+                            if (visibleAccounts.size >= 2) {
+                                OutlinedButton(
+                                    onClick = { showTransferDialog = true },
+                                    modifier = Modifier.weight(1f).testTag("transfer_btn"),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Transferir", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                                }
                             }
                         }
                     }
@@ -200,7 +226,13 @@ fun AccountsScreen(
                 AccountItemCard(
                     account = acc,
                     onEdit = { accountToEdit = acc },
-                    onDelete = { accountToDelete = acc }
+                    onDelete = { accountToDelete = acc },
+                    onAddIncome = {
+                        selectedTxAccountAndType = Pair(TransactionType.INCOME.name, acc.id)
+                    },
+                    onAddExpense = {
+                        selectedTxAccountAndType = Pair(TransactionType.EXPENSE.name, acc.id)
+                    }
                 )
             }
         }
@@ -259,8 +291,24 @@ fun AccountsScreen(
         AddTransactionDialog(
             initialType = TransactionType.TRANSFER.name,
             accounts = accounts,
+            customExpenseCategories = settings.customExpenseCategories,
+            customIncomeCategories = settings.customIncomeCategories,
             onDismiss = { showTransferDialog = false },
-            onSave = { tx -> viewModel.addTransaction(tx) }
+            onSave = { tx -> viewModel.addTransaction(tx) },
+            onCreateCategory = { name, isInc -> viewModel.addCustomCategory(name, isInc) }
+        )
+    }
+
+    selectedTxAccountAndType?.let { (type, targetAccId) ->
+        AddTransactionDialog(
+            initialType = type,
+            preselectedAccountId = targetAccId,
+            accounts = accounts,
+            customExpenseCategories = settings.customExpenseCategories,
+            customIncomeCategories = settings.customIncomeCategories,
+            onDismiss = { selectedTxAccountAndType = null },
+            onSave = { tx -> viewModel.addTransaction(tx) },
+            onCreateCategory = { name, isInc -> viewModel.addCustomCategory(name, isInc) }
         )
     }
 }

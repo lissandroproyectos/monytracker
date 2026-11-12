@@ -31,8 +31,11 @@ import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -45,10 +48,10 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -611,6 +614,7 @@ fun AddAccountDialog(
 @Composable
 fun AddTransactionDialog(
     initialType: String = TransactionType.EXPENSE.name,
+    preselectedAccountId: String? = null,
     accounts: List<Account>,
     customExpenseCategories: List<String> = emptyList(),
     customIncomeCategories: List<String> = emptyList(),
@@ -618,12 +622,17 @@ fun AddTransactionDialog(
     onSave: (Transaction) -> Unit,
     onCreateCategory: ((String, Boolean) -> Unit)? = null
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var type by remember { mutableStateOf(initialType) }
     var amountText by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var isFixedExpense by remember { mutableStateOf(false) }
+    var selectedMovementDate by remember { mutableStateOf(java.util.Date()) }
+    val dateFormatter = remember { java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()) }
 
-    var selectedAccountId by remember { mutableStateOf(accounts.firstOrNull()?.id ?: "") }
+    var selectedAccountId by remember {
+        mutableStateOf(preselectedAccountId.takeIf { !it.isNullOrBlank() } ?: accounts.firstOrNull()?.id ?: "")
+    }
     var targetAccountId by remember { mutableStateOf(accounts.getOrNull(1)?.id ?: "") }
 
     val currentAcc = accounts.find { it.id == selectedAccountId } ?: accounts.firstOrNull()
@@ -663,7 +672,7 @@ fun AddTransactionDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Registrar Movimiento",
+                        text = "Registrar Ingreso / Egreso Extra",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimaryDark
@@ -673,14 +682,34 @@ fun AddTransactionDialog(
                     }
                 }
 
+                Surface(
+                    color = EmeraldDark.copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Info, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Este movimiento impactará directamente el saldo de la cuenta seleccionada.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondaryDark,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+
                 // Type Tabs
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     listOf(
-                        TransactionType.EXPENSE.name to "Egreso",
-                        TransactionType.INCOME.name to "Ingreso",
+                        TransactionType.EXPENSE.name to "Egreso Extra",
+                        TransactionType.INCOME.name to "Ingreso Extra",
                         TransactionType.TRANSFER.name to "Transferir"
                     ).forEach { (tKey, label) ->
                         val isSelected = type == tKey
@@ -759,7 +788,7 @@ fun AddTransactionDialog(
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
-                    label = { Text("Descripción (ej. Mercado, Alquiler, Salario)") },
+                    label = { Text("Descripción (ej. Venta extra, Reparación, Regalo)") },
                     modifier = Modifier.fillMaxWidth().testTag("tx_desc_input"),
                     singleLine = true
                 )
@@ -803,7 +832,7 @@ fun AddTransactionDialog(
                     }
                 }
 
-                // Origin Account Dropdown
+                // Target / Impacted Account Dropdown
                 ExposedDropdownMenuBox(
                     expanded = accountExpanded,
                     onExpandedChange = { accountExpanded = it }
@@ -813,7 +842,7 @@ fun AddTransactionDialog(
                         value = currentAccName,
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text(if (type == TransactionType.TRANSFER.name) "Cuenta Origen" else "Cuenta") },
+                        label = { Text(if (type == TransactionType.TRANSFER.name) "Cuenta Origen" else "Cuenta a Impactar") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = accountExpanded) },
                         modifier = Modifier.menuAnchor().fillMaxWidth()
                     )
@@ -823,7 +852,7 @@ fun AddTransactionDialog(
                     ) {
                         selectableAccounts.forEach { acc ->
                             DropdownMenuItem(
-                                text = { Text("${acc.name} (${acc.currency})") },
+                                text = { Text("${acc.name} (${acc.currency}) - Saldo: ${formatCurrency(acc.currentBalance)}") },
                                 onClick = {
                                     selectedAccountId = acc.id
                                     selectedCurrency = AppCurrency.fromCode(acc.currency)
@@ -833,6 +862,35 @@ fun AddTransactionDialog(
                         }
                     }
                 }
+
+                // Date Picker for the transaction date
+                OutlinedTextField(
+                    value = dateFormatter.format(selectedMovementDate),
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Fecha del Movimiento") },
+                    leadingIcon = {
+                        Icon(Icons.Default.CalendarToday, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(18.dp))
+                    },
+                    trailingIcon = {
+                        TextButton(
+                            onClick = {
+                                showPlatformDatePicker(context, selectedMovementDate) { date ->
+                                    selectedMovementDate = date
+                                }
+                            }
+                        ) {
+                            Text("Cambiar", color = EmeraldLight, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showPlatformDatePicker(context, selectedMovementDate) { date ->
+                                selectedMovementDate = date
+                            }
+                        }
+                )
 
                 if (type == TransactionType.TRANSFER.name) {
                     ExposedDropdownMenuBox(
@@ -888,7 +946,7 @@ fun AddTransactionDialog(
                                         isFixedExpense = isFixedExpense,
                                         category = if (type == TransactionType.TRANSFER.name) "Transferencia" else selectedCategory,
                                         description = description.trim().ifBlank { selectedCategory },
-                                        date = Timestamp.now()
+                                        date = Timestamp(selectedMovementDate)
                                     )
                                 )
                                 onDismiss()
