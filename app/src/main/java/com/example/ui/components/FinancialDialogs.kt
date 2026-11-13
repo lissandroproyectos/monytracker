@@ -615,38 +615,71 @@ fun AddAccountDialog(
 fun AddTransactionDialog(
     initialType: String = TransactionType.EXPENSE.name,
     preselectedAccountId: String? = null,
+    transactionToEdit: Transaction? = null,
     accounts: List<Account>,
     customExpenseCategories: List<String> = emptyList(),
     customIncomeCategories: List<String> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (Transaction) -> Unit,
+    onDelete: ((Transaction) -> Unit)? = null,
     onCreateCategory: ((String, Boolean) -> Unit)? = null
 ) {
+    val isEditMode = transactionToEdit != null
     val context = androidx.compose.ui.platform.LocalContext.current
-    var type by remember { mutableStateOf(initialType) }
-    var amountText by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var isFixedExpense by remember { mutableStateOf(false) }
-    var selectedMovementDate by remember { mutableStateOf(java.util.Date()) }
+    var type by remember(transactionToEdit) { mutableStateOf(transactionToEdit?.type ?: initialType) }
+    var amountText by remember(transactionToEdit) {
+        mutableStateOf(
+            if (transactionToEdit != null) {
+                val rounded = kotlin.math.round(transactionToEdit.amount * 100.0) / 100.0
+                if (rounded % 1.0 == 0.0) rounded.toLong().toString()
+                else String.format(Locale.US, "%.2f", rounded)
+            } else ""
+        )
+    }
+    var description by remember(transactionToEdit) { mutableStateOf(transactionToEdit?.description ?: "") }
+    var notes by remember(transactionToEdit) { mutableStateOf(transactionToEdit?.notes ?: "") }
+    var isFixedExpense by remember(transactionToEdit) { mutableStateOf(transactionToEdit?.isFixedExpense ?: false) }
+    var selectedMovementDate by remember(transactionToEdit) {
+        mutableStateOf(transactionToEdit?.date?.toDate() ?: java.util.Date())
+    }
     val dateFormatter = remember { java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()) }
 
-    var selectedAccountId by remember {
-        mutableStateOf(preselectedAccountId.takeIf { !it.isNullOrBlank() } ?: accounts.firstOrNull()?.id ?: "")
+    var selectedAccountId by remember(transactionToEdit, preselectedAccountId) {
+        mutableStateOf(
+            transactionToEdit?.accountId?.takeIf { it.isNotBlank() }
+                ?: preselectedAccountId.takeIf { !it.isNullOrBlank() }
+                ?: accounts.firstOrNull { !it.isPlanStartAccount }?.id
+                ?: accounts.firstOrNull()?.id
+                ?: ""
+        )
     }
-    var targetAccountId by remember { mutableStateOf(accounts.getOrNull(1)?.id ?: "") }
+    var targetAccountId by remember(transactionToEdit) {
+        mutableStateOf(
+            transactionToEdit?.targetAccountId?.takeIf { it.isNotBlank() }
+                ?: accounts.getOrNull(1)?.id
+                ?: ""
+        )
+    }
 
     val currentAcc = accounts.find { it.id == selectedAccountId } ?: accounts.firstOrNull()
-    var selectedCurrency by remember {
-        mutableStateOf(AppCurrency.fromCode(currentAcc?.currency))
+    var selectedCurrency by remember(transactionToEdit) {
+        mutableStateOf(
+            if (transactionToEdit != null) AppCurrency.fromCode(transactionToEdit.currency)
+            else AppCurrency.fromCode(currentAcc?.currency)
+        )
     }
 
-    var selectedCategory by remember {
-        mutableStateOf(if (initialType == TransactionType.INCOME.name) CATEGORY_INCOMES[0] else CATEGORY_EXPENSES[0])
+    var selectedCategory by remember(transactionToEdit) {
+        mutableStateOf(
+            transactionToEdit?.category?.takeIf { it.isNotBlank() }
+                ?: if (initialType == TransactionType.INCOME.name) CATEGORY_INCOMES[0] else CATEGORY_EXPENSES[0]
+        )
     }
 
     var accountExpanded by remember { mutableStateOf(false) }
     var targetAccountExpanded by remember { mutableStateOf(false) }
     var currExpanded by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -662,9 +695,9 @@ fun AddTransactionDialog(
         ) {
             Column(
                 modifier = Modifier
-                    .padding(20.dp)
+                    .padding(18.dp)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -672,7 +705,7 @@ fun AddTransactionDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Registrar Ingreso / Egreso Extra",
+                        text = if (isEditMode) "Detalle / Editar Movimiento" else "Registrar Ingreso / Egreso Extra",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimaryDark
@@ -682,8 +715,9 @@ fun AddTransactionDialog(
                     }
                 }
 
+                val isSelectedAccSavings = currentAcc?.isSavings == true || currentAcc?.type == AccountType.SAVINGS.name
                 Surface(
-                    color = EmeraldDark.copy(alpha = 0.15f),
+                    color = if (isSelectedAccSavings) EmeraldDark.copy(alpha = 0.25f) else EmeraldDark.copy(alpha = 0.15f),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -694,7 +728,13 @@ fun AddTransactionDialog(
                         Icon(Icons.Default.Info, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Este movimiento impactará directamente el saldo de la cuenta seleccionada.",
+                            text = if (isEditMode) {
+                                "Al actualizar o eliminar, se revertirá el impacto anterior y se ajustará el saldo de la cuenta y tus ahorros."
+                            } else if (isSelectedAccSavings) {
+                                "Este movimiento modificará directamente el saldo de tu Fondo de Ahorro / Colchón."
+                            } else {
+                                "Modificará tu liquidez y recalculará automáticamente el excedente a apartar para ahorro antes del próximo ingreso."
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondaryDark,
                             fontSize = 11.sp
@@ -823,12 +863,12 @@ fun AddTransactionDialog(
                     )
                 }
 
-                // Filter accounts: Income cannot target plan start account; Expense can use plan start account if balance > 0
-                val selectableAccounts = remember(accounts, type) {
+                // Filter accounts: Income cannot target plan start account; Expense can use plan start account if balance > 0 (or keep currently assigned account in edit mode)
+                val selectableAccounts = remember(accounts, type, transactionToEdit) {
                     if (type == TransactionType.INCOME.name) {
-                        accounts.filter { !it.isPlanStartAccount }
+                        accounts.filter { !it.isPlanStartAccount || it.id == transactionToEdit?.accountId }
                     } else {
-                        accounts.filter { !it.isPlanStartAccount || it.currentBalance > 0 }
+                        accounts.filter { !it.isPlanStartAccount || it.currentBalance > 0 || it.id == transactionToEdit?.accountId }
                     }
                 }
 
@@ -837,7 +877,8 @@ fun AddTransactionDialog(
                     expanded = accountExpanded,
                     onExpandedChange = { accountExpanded = it }
                 ) {
-                    val currentAccName = selectableAccounts.find { it.id == selectedAccountId }?.name ?: "Seleccionar Cuenta"
+                    val currentAccName = selectableAccounts.find { it.id == selectedAccountId }?.name
+                        ?: if (selectedAccountId == "EXTERNAL") "Dinero Externo" else "Seleccionar Cuenta"
                     OutlinedTextField(
                         value = currentAccName,
                         onValueChange = {},
@@ -910,7 +951,7 @@ fun AddTransactionDialog(
                             expanded = targetAccountExpanded,
                             onDismissRequest = { targetAccountExpanded = false }
                         ) {
-                            accounts.filter { it.id != selectedAccountId && !it.isPlanStartAccount }.forEach { acc ->
+                            accounts.filter { it.id != selectedAccountId && (!it.isPlanStartAccount || it.id == transactionToEdit?.targetAccountId) }.forEach { acc ->
                                 DropdownMenuItem(
                                     text = { Text("${acc.name} (${acc.currency})") },
                                     onClick = {
@@ -923,44 +964,107 @@ fun AddTransactionDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("Notas / Detalles (Opcional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                        Text("Cancelar")
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                    ) {
+                        Text("Cancelar", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
                     }
+
+                    if (isEditMode && onDelete != null && transactionToEdit != null) {
+                        Button(
+                            onClick = { showDeleteConfirm = true },
+                            modifier = Modifier.weight(1f).testTag("delete_tx_dialog_btn"),
+                            colors = ButtonDefaults.buttonColors(containerColor = AccentRed),
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                        ) {
+                            Text("Eliminar", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
+                        }
+                    }
+
                     Button(
                         onClick = {
-                            val parsed = amountText.toDoubleOrNull() ?: 0.0
+                            val rawParsed = amountText.replace(",", ".").toDoubleOrNull() ?: 0.0
+                            val parsed = kotlin.math.round(rawParsed * 100.0) / 100.0
                             if (parsed > 0 && selectedAccountId.isNotBlank()) {
                                 onSave(
                                     Transaction(
+                                        id = transactionToEdit?.id ?: "",
+                                        userId = transactionToEdit?.userId ?: "",
                                         accountId = selectedAccountId,
                                         targetAccountId = if (type == TransactionType.TRANSFER.name) targetAccountId else null,
                                         type = type,
                                         amount = parsed,
                                         currency = selectedCurrency.name,
-                                        isFixedExpense = isFixedExpense,
+                                        isFixedExpense = if (type == TransactionType.EXPENSE.name) isFixedExpense else false,
                                         category = if (type == TransactionType.TRANSFER.name) "Transferencia" else selectedCategory,
                                         description = description.trim().ifBlank { selectedCategory },
-                                        date = Timestamp(selectedMovementDate)
+                                        date = Timestamp(selectedMovementDate),
+                                        notes = notes.trim().ifBlank { null },
+                                        commitmentId = transactionToEdit?.commitmentId,
+                                        createdAt = transactionToEdit?.createdAt
                                     )
                                 )
                                 onDismiss()
                             }
                         },
-                        enabled = (amountText.toDoubleOrNull() ?: 0.0) > 0 && selectedAccountId.isNotBlank(),
-                        modifier = Modifier.weight(1f).testTag("save_tx_btn"),
-                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                        enabled = (amountText.replace(",", ".").toDoubleOrNull() ?: 0.0) > 0 && selectedAccountId.isNotBlank(),
+                        modifier = Modifier.weight(1.1f).testTag("save_tx_btn"),
+                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
                     ) {
-                        Text("Guardar")
+                        Text(if (isEditMode) "Actualizar" else "Guardar", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
                     }
                 }
             }
         }
+    }
+
+    if (showDeleteConfirm && transactionToEdit != null && onDelete != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            containerColor = SlateCard,
+            title = { Text("¿Eliminar movimiento?", fontWeight = FontWeight.Bold, color = TextPrimaryDark) },
+            text = {
+                Text(
+                    "Se eliminará '${transactionToEdit.description.ifBlank { transactionToEdit.category }}' y se revertirá su impacto en el saldo de la cuenta.",
+                    color = TextSecondaryDark
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onDelete(transactionToEdit)
+                        onDismiss()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
+                ) {
+                    Text("Eliminar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancelar", color = TextSecondaryDark)
+                }
+            }
+        )
     }
 }
 
@@ -4138,6 +4242,7 @@ fun EventDetailDialog(
                     // Action buttons
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (event.isPaid) {
+                            val isStandaloneExtraTx = event.commitment == null && event.transactionId != null
                             Button(
                                 onClick = onEditPayment,
                                 colors = ButtonDefaults.buttonColors(containerColor = SlateCardLight),
@@ -4145,7 +4250,11 @@ fun EventDetailDialog(
                             ) {
                                 Icon(Icons.Default.EditCalendar, contentDescription = null, modifier = Modifier.size(16.dp), tint = TextPrimaryDark)
                                 Spacer(Modifier.width(8.dp))
-                                Text("Cambiar Cuenta o Fecha de Pago", color = TextPrimaryDark, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = if (isStandaloneExtraTx) "Editar Movimiento Extra" else "Cambiar Cuenta o Fecha de Pago",
+                                    color = TextPrimaryDark,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
 
                             OutlinedButton(
@@ -4154,7 +4263,9 @@ fun EventDetailDialog(
                                 border = BorderStroke(1.dp, AccentRed.copy(alpha = 0.5f)),
                                 modifier = Modifier.fillMaxWidth().testTag("unmark_payment_btn")
                             ) {
-                                Text("Desmarcar (Volver a Pendiente)")
+                                Text(
+                                    if (isStandaloneExtraTx) "Eliminar Movimiento" else "Desmarcar (Volver a Pendiente)"
+                                )
                             }
                         } else {
                             Button(

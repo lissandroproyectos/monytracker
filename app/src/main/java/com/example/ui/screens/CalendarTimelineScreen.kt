@@ -87,6 +87,7 @@ import com.example.data.model.Frequency
 import com.example.data.model.Transaction
 import com.example.data.model.TransactionType
 import com.example.ui.FinanceViewModel
+import com.example.ui.components.AddTransactionDialog
 import com.example.ui.components.ConfirmPaymentDialog
 import com.example.ui.components.EventDetailDialog
 import com.example.ui.components.TransferSurplusDialog
@@ -783,29 +784,49 @@ fun MonthlyCalendarView(
             } else null
         }
 
-        ConfirmPaymentDialog(
-            title = event.title,
-            suggestedAmount = matchedTx?.amount ?: event.amount,
-            currencyCode = event.currency.name,
-            dueDate = event.dueDate,
-            accounts = accounts,
-            isIncome = event.isIncome,
-            isEditMode = true,
-            initialAccountId = matchedTx?.accountId ?: "EXTERNAL",
-            initialPaidDate = matchedTx?.date?.toDate() ?: event.dueDate,
-            initialNotes = matchedTx?.notes ?: "",
-            onDismiss = { eventToEditPayment = null },
-            onConfirm = { account: Account?, paidDate: Date, amount: Double, notes: String ->
-                viewModel.editEventPayment(
-                    event = event,
-                    newAccount = account,
-                    newPaidDate = paidDate,
-                    newAmount = amount,
-                    notes = notes
-                )
-                eventToEditPayment = null
-            }
-        )
+        if (event.commitment == null && event.transactionId != null && matchedTx != null) {
+            val settings by viewModel.settings.collectAsStateWithLifecycle()
+            AddTransactionDialog(
+                transactionToEdit = matchedTx,
+                accounts = accounts,
+                customExpenseCategories = settings.customExpenseCategories,
+                customIncomeCategories = settings.customIncomeCategories,
+                onDismiss = { eventToEditPayment = null },
+                onSave = { updatedTx ->
+                    viewModel.updateTransaction(matchedTx, updatedTx)
+                    eventToEditPayment = null
+                },
+                onDelete = { txToRemove ->
+                    viewModel.deleteTransaction(txToRemove)
+                    eventToEditPayment = null
+                },
+                onCreateCategory = { name, isInc -> viewModel.addCustomCategory(name, isInc) }
+            )
+        } else {
+            ConfirmPaymentDialog(
+                title = event.title,
+                suggestedAmount = matchedTx?.amount ?: event.amount,
+                currencyCode = event.currency.name,
+                dueDate = event.dueDate,
+                accounts = accounts,
+                isIncome = event.isIncome,
+                isEditMode = true,
+                initialAccountId = matchedTx?.accountId ?: "EXTERNAL",
+                initialPaidDate = matchedTx?.date?.toDate() ?: event.dueDate,
+                initialNotes = matchedTx?.notes ?: "",
+                onDismiss = { eventToEditPayment = null },
+                onConfirm = { account: Account?, paidDate: Date, amount: Double, notes: String ->
+                    viewModel.editEventPayment(
+                        event = event,
+                        newAccount = account,
+                        newPaidDate = paidDate,
+                        newAmount = amount,
+                        notes = notes
+                    )
+                    eventToEditPayment = null
+                }
+            )
+        }
     }
 
     pendingPaymentEvent?.let { event ->
@@ -1812,29 +1833,49 @@ fun PaymentPlanProjectionView(
             } else null
         }
 
-        ConfirmPaymentDialog(
-            title = event.title,
-            suggestedAmount = matchedTx?.amount ?: event.amount,
-            currencyCode = event.currency.name,
-            dueDate = event.dueDate,
-            accounts = accounts,
-            isIncome = event.isIncome,
-            isEditMode = true,
-            initialAccountId = matchedTx?.accountId ?: "EXTERNAL",
-            initialPaidDate = matchedTx?.date?.toDate() ?: event.dueDate,
-            initialNotes = matchedTx?.notes ?: "",
-            onDismiss = { eventToEditPayment = null },
-            onConfirm = { account: Account?, paidDate: Date, amount: Double, notes: String ->
-                viewModel.editEventPayment(
-                    event = event,
-                    newAccount = account,
-                    newPaidDate = paidDate,
-                    newAmount = amount,
-                    notes = notes
-                )
-                eventToEditPayment = null
-            }
-        )
+        if (event.commitment == null && event.transactionId != null && matchedTx != null) {
+            val settings by viewModel.settings.collectAsStateWithLifecycle()
+            AddTransactionDialog(
+                transactionToEdit = matchedTx,
+                accounts = accounts,
+                customExpenseCategories = settings.customExpenseCategories,
+                customIncomeCategories = settings.customIncomeCategories,
+                onDismiss = { eventToEditPayment = null },
+                onSave = { updatedTx ->
+                    viewModel.updateTransaction(matchedTx, updatedTx)
+                    eventToEditPayment = null
+                },
+                onDelete = { txToRemove ->
+                    viewModel.deleteTransaction(txToRemove)
+                    eventToEditPayment = null
+                },
+                onCreateCategory = { name, isInc -> viewModel.addCustomCategory(name, isInc) }
+            )
+        } else {
+            ConfirmPaymentDialog(
+                title = event.title,
+                suggestedAmount = matchedTx?.amount ?: event.amount,
+                currencyCode = event.currency.name,
+                dueDate = event.dueDate,
+                accounts = accounts,
+                isIncome = event.isIncome,
+                isEditMode = true,
+                initialAccountId = matchedTx?.accountId ?: "EXTERNAL",
+                initialPaidDate = matchedTx?.date?.toDate() ?: event.dueDate,
+                initialNotes = matchedTx?.notes ?: "",
+                onDismiss = { eventToEditPayment = null },
+                onConfirm = { account: Account?, paidDate: Date, amount: Double, notes: String ->
+                    viewModel.editEventPayment(
+                        event = event,
+                        newAccount = account,
+                        newPaidDate = paidDate,
+                        newAmount = amount,
+                        notes = notes
+                    )
+                    eventToEditPayment = null
+                }
+            )
+        }
     }
 
     pendingPaymentEvent?.let { event ->

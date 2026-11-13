@@ -275,7 +275,10 @@ fun MainApp(
                 .padding(padding)
         ) {
             if (showTransactionsScreen) {
-                TransactionsScreen(viewModel = viewModel)
+                TransactionsScreen(
+                    viewModel = viewModel,
+                    onBack = { showTransactionsScreen = false }
+                )
             } else {
                 when (currentTab) {
                     ScreenTab.DASHBOARD -> DashboardScreen(
@@ -304,7 +307,10 @@ fun MainApp(
                         }
                     )
                     ScreenTab.TIMELINE -> CalendarTimelineScreen(viewModel = viewModel)
-                    ScreenTab.ACCOUNTS -> AccountsScreen(viewModel = viewModel)
+                    ScreenTab.ACCOUNTS -> AccountsScreen(
+                        viewModel = viewModel,
+                        onNavigateToTransactions = { showTransactionsScreen = true }
+                    )
                 }
             }
         }

@@ -762,19 +762,27 @@ fun TransactionRow(
     transaction: Transaction,
     accountName: String,
     onDelete: () -> Unit,
+    onClick: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val isIncome = transaction.type == TransactionType.INCOME.name
     val isTransfer = transaction.type == TransactionType.TRANSFER.name
+    val isExtra = transaction.commitmentId.isNullOrBlank() && !transaction.isFixedExpense && !isTransfer
     val sign = if (isIncome) "+" else "-"
     val amountColor = if (isIncome) EmeraldLight else if (isTransfer) AccentAmber else AccentRed
     val icon = if (isIncome) Icons.Default.ArrowDownward else if (isTransfer) Icons.Default.SwapHoriz else Icons.Default.ArrowUpward
     val txCurrency = AppCurrency.fromCode(transaction.currency)
+    val rowClickAction = onClick ?: onEdit
 
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .testTag("tx_${transaction.id}"),
+            .testTag("tx_${transaction.id}")
+            .then(
+                if (rowClickAction != null) Modifier.clickable { rowClickAction() }
+                else Modifier
+            ),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = SlateCard.copy(alpha = 0.8f))
     ) {
@@ -806,7 +814,8 @@ fun TransactionRow(
                             style = MaterialTheme.typography.titleMedium,
                             color = TextPrimaryDark,
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp
+                            fontSize = 14.sp,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
                         if (transaction.isFixedExpense) {
                             Spacer(modifier = Modifier.width(6.dp))
@@ -817,6 +826,20 @@ fun TransactionRow(
                                 Text(
                                     text = "Fijo",
                                     color = AccentAmber,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                )
+                            }
+                        } else if (isExtra) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                color = amountColor.copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    text = "Extra",
+                                    color = amountColor,
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
@@ -841,14 +864,27 @@ fun TransactionRow(
                     color = amountColor,
                     fontSize = 14.sp
                 )
+                if (onEdit != null) {
+                    IconButton(
+                        onClick = onEdit,
+                        modifier = Modifier.size(34.dp).testTag("edit_tx_${transaction.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Editar movimiento",
+                            tint = EmeraldLight.copy(alpha = 0.85f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
                 IconButton(
                     onClick = onDelete,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(34.dp).testTag("delete_tx_${transaction.id}")
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "Eliminar movimiento",
-                        tint = TextSecondaryDark.copy(alpha = 0.5f),
+                        tint = AccentRed.copy(alpha = 0.75f),
                         modifier = Modifier.size(16.dp)
                     )
                 }

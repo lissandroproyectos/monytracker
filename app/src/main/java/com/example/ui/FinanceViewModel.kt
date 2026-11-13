@@ -490,6 +490,17 @@ class FinanceViewModel(
         }
     }
 
+    fun updateTransaction(oldTransaction: Transaction, newTransaction: Transaction) {
+        viewModelScope.launch {
+            try {
+                repository.updateTransaction(currentUserId, oldTransaction, newTransaction, exchangeRates.value)
+                _userMessage.value = UiMessage.Success("Movimiento actualizado y saldo ajustado")
+            } catch (e: Exception) {
+                _errorMessage.value = "Error al actualizar movimiento: ${e.localizedMessage}"
+            }
+        }
+    }
+
     fun addCommitment(commitment: ExpenseCommitment) {
         viewModelScope.launch {
             try {

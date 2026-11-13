@@ -41,14 +41,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.Account
+import com.example.data.model.Transaction
 import com.example.ui.FinanceViewModel
 import com.example.ui.components.AccountItemCard
 import com.example.ui.components.AddAccountDialog
 import com.example.ui.components.AddTransactionDialog
+import com.example.ui.components.TransactionRow
 import com.example.ui.components.formatCurrency
 import com.example.data.model.TransactionType
 import androidx.compose.material.icons.filled.Savings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import com.example.data.model.AccountType
+import com.example.ui.theme.AccentRed
 import com.example.ui.theme.EmeraldDark
 import com.example.ui.theme.EmeraldLight
 import com.example.ui.theme.EmeraldPrimary
@@ -60,20 +65,27 @@ import com.example.ui.theme.TextSecondaryDark
 @Composable
 fun AccountsScreen(
     viewModel: FinanceViewModel,
+    onNavigateToTransactions: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+    val transactions by viewModel.transactions.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     var showAddAccountDialog by remember { mutableStateOf(false) }
     var accountToEdit by remember { mutableStateOf<Account?>(null) }
     var accountToDelete by remember { mutableStateOf<Account?>(null) }
     var showTransferDialog by remember { mutableStateOf(false) }
     var selectedTxAccountAndType by remember { mutableStateOf<Pair<String, String?>?>(null) } // Pair(Type, accountId?)
+    var transactionToEdit by remember { mutableStateOf<Transaction?>(null) }
+    var transactionToDelete by remember { mutableStateOf<Transaction?>(null) }
 
     val visibleAccounts = remember(accounts) { accounts.filter { !it.isPlanStartAccount } }
     val totalBalance = visibleAccounts.sumOf { it.currentBalance }
     val savingsAccounts = visibleAccounts.filter { it.isSavings || it.type == AccountType.SAVINGS.name }
     val savingsTotal = savingsAccounts.sumOf { it.currentBalance }
+    val extraTransactions = remember(transactions) {
+        transactions.filter { it.commitmentId.isNullOrBlank() && it.type != TransactionType.TRANSFER.name }
+    }
 
     LazyColumn(
         modifier = modifier
@@ -237,6 +249,67 @@ fun AccountsScreen(
             }
         }
 
+        // Recent Extra Movements Section
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Ingresos / Egresos Extra (${extraTransactions.size})",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimaryDark
+                    )
+                    Text(
+                        text = "Toca un movimiento para ver, editar o eliminar",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondaryDark,
+                        fontSize = 11.sp
+                    )
+                }
+                if (onNavigateToTransactions != null) {
+                    TextButton(
+                        onClick = onNavigateToTransactions,
+                        modifier = Modifier.testTag("accounts_view_all_tx_btn")
+                    ) {
+                        Text("Ver Historial", color = EmeraldLight, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        if (extraTransactions.isEmpty()) {
+            item {
+                Surface(
+                    color = SlateCard.copy(alpha = 0.45f),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "No tienes ingresos ni egresos extra registrados aún.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondaryDark,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+            }
+        } else {
+            items(extraTransactions.take(6), key = { it.id }) { tx ->
+                val accName = accounts.find { it.id == tx.accountId }?.name
+                    ?: if (tx.accountId == "EXTERNAL") "Dinero Externo" else "Cuenta"
+                TransactionRow(
+                    transaction = tx,
+                    accountName = accName,
+                    onClick = { transactionToEdit = tx },
+                    onEdit = { transactionToEdit = tx },
+                    onDelete = { transactionToDelete = tx }
+                )
+            }
+        }
+
         item {
             Spacer(modifier = Modifier.height(60.dp))
         }
@@ -309,6 +382,55 @@ fun AccountsScreen(
             onDismiss = { selectedTxAccountAndType = null },
             onSave = { tx -> viewModel.addTransaction(tx) },
             onCreateCategory = { name, isInc -> viewModel.addCustomCategory(name, isInc) }
+        )
+    }
+
+    transactionToEdit?.let { oldTx ->
+        AddTransactionDialog(
+            transactionToEdit = oldTx,
+            accounts = accounts,
+            customExpenseCategories = settings.customExpenseCategories,
+            customIncomeCategories = settings.customIncomeCategories,
+            onDismiss = { transactionToEdit = null },
+            onSave = { updatedTx ->
+                viewModel.updateTransaction(oldTx, updatedTx)
+                transactionToEdit = null
+            },
+            onDelete = { txToRemove ->
+                viewModel.deleteTransaction(txToRemove)
+                transactionToEdit = null
+            },
+            onCreateCategory = { name, isInc -> viewModel.addCustomCategory(name, isInc) }
+        )
+    }
+
+    transactionToDelete?.let { tx ->
+        AlertDialog(
+            onDismissRequest = { transactionToDelete = null },
+            containerColor = SlateCard,
+            title = { Text("¿Eliminar movimiento?", fontWeight = FontWeight.Bold, color = TextPrimaryDark) },
+            text = {
+                Text(
+                    "Se eliminará '${tx.description.ifBlank { tx.category }}' y se revertirá su impacto en el saldo de la cuenta.",
+                    color = TextSecondaryDark
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteTransaction(tx)
+                        transactionToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
+                ) {
+                    Text("Eliminar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { transactionToDelete = null }) {
+                    Text("Cancelar", color = TextSecondaryDark)
+                }
+            }
         )
     }
 }

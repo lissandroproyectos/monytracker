@@ -292,6 +292,82 @@ class FinanceRepository(
         }
     }
 
+    suspend fun updateTransaction(
+        userId: String,
+        oldTransaction: Transaction,
+        newTransaction: Transaction,
+        rates: ExchangeRates? = null
+    ) {
+        val txCurrency = AppCurrency.fromCode(newTransaction.currency)
+        val calculatedBs = rates?.convert(newTransaction.amount, txCurrency, AppCurrency.VES) ?: 0.0
+
+        val updatedTx = newTransaction.copy(
+            id = oldTransaction.id,
+            userId = if (isGuest(userId)) "local_guest" else userId,
+            amountInBs = calculatedBs,
+            commitmentId = newTransaction.commitmentId ?: oldTransaction.commitmentId,
+            createdAt = oldTransaction.createdAt ?: newTransaction.createdAt
+        )
+
+        // Compute net balance changes per accountId (revert old + apply new)
+        val netAccountDeltas = mutableMapOf<String, Double>()
+        fun addDelta(accountId: String?, delta: Double) {
+            if (!accountId.isNullOrBlank() && accountId != "EXTERNAL" && delta != 0.0) {
+                netAccountDeltas[accountId] = (netAccountDeltas[accountId] ?: 0.0) + delta
+            }
+        }
+
+        // Revert old transaction impact
+        when (oldTransaction.type) {
+            TransactionType.INCOME.name -> addDelta(oldTransaction.accountId, -oldTransaction.amount)
+            TransactionType.EXPENSE.name -> addDelta(oldTransaction.accountId, oldTransaction.amount)
+            TransactionType.TRANSFER.name -> {
+                addDelta(oldTransaction.accountId, oldTransaction.amount)
+                addDelta(oldTransaction.targetAccountId, -oldTransaction.amount)
+            }
+        }
+
+        // Apply new transaction impact
+        when (updatedTx.type) {
+            TransactionType.INCOME.name -> addDelta(updatedTx.accountId, updatedTx.amount)
+            TransactionType.EXPENSE.name -> addDelta(updatedTx.accountId, -updatedTx.amount)
+            TransactionType.TRANSFER.name -> {
+                addDelta(updatedTx.accountId, -updatedTx.amount)
+                addDelta(updatedTx.targetAccountId, updatedTx.amount)
+            }
+        }
+
+        if (isGuest(userId)) {
+            _localTransactions.value = _localTransactions.value.map {
+                if (it.id == oldTransaction.id) updatedTx else it
+            }.sortedByDescending { it.date.seconds }
+
+            if (netAccountDeltas.isNotEmpty()) {
+                _localAccounts.value = _localAccounts.value.map { acc ->
+                    val delta = netAccountDeltas[acc.id] ?: 0.0
+                    if (kotlin.math.abs(delta) > 0.0001) {
+                        acc.copy(currentBalance = kotlin.math.round((acc.currentBalance + delta) * 100.0) / 100.0)
+                    } else acc
+                }
+            }
+            persistLocalGuestData()
+            return
+        }
+
+        firestore.collection("users").document(userId)
+            .collection("transactions").document(oldTransaction.id)
+            .set(updatedTx.toMap())
+            .await()
+
+        netAccountDeltas.forEach { (accId, delta) ->
+            if (kotlin.math.abs(delta) > 0.0001) {
+                val accountDoc = firestore.collection("users").document(userId)
+                    .collection("accounts").document(accId)
+                accountDoc.update("currentBalance", FieldValue.increment(delta)).await()
+            }
+        }
+    }
+
     // Expense Commitments
     fun observeCommitments(userId: String): Flow<List<ExpenseCommitment>> {
         if (isGuest(userId)) {

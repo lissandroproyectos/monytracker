@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -38,7 +39,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,6 +56,7 @@ import com.example.data.model.Account
 import com.example.data.model.ExpenseCommitment
 import com.example.data.model.Transaction
 import com.example.ui.FinanceViewModel
+import com.example.ui.components.AddTransactionDialog
 import com.example.ui.components.BalanceOverviewCard
 import com.example.ui.components.CashflowProjectionCard
 import com.example.ui.components.CommitmentCard
@@ -61,6 +65,7 @@ import com.example.ui.components.SafetyCushionBanner
 import com.example.ui.components.TransactionRow
 import com.example.ui.components.formatCurrency
 import com.example.ui.theme.AccentAmber
+import com.example.ui.theme.AccentRed
 import com.example.ui.theme.EmeraldDark
 import com.example.ui.theme.EmeraldLight
 import com.example.ui.theme.EmeraldPrimary
@@ -92,8 +97,12 @@ fun DashboardScreen(
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val transactions by viewModel.transactions.collectAsStateWithLifecycle()
     val commitments by viewModel.commitments.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
     val projectedPoints by viewModel.projectedCashflow.collectAsStateWithLifecycle()
     val projectionMonths by viewModel.projectionMonths.collectAsStateWithLifecycle()
+
+    var transactionToEdit by remember { mutableStateOf<Transaction?>(null) }
+    var transactionToDelete by remember { mutableStateOf<Transaction?>(null) }
 
     val visibleAccounts = remember(accounts) { accounts.filter { !it.isPlanStartAccount } }
     val activeCommitments = commitments.filter { it.status == "ACTIVE" }
@@ -314,11 +323,14 @@ fun DashboardScreen(
             }
         } else {
             items(recentTransactions, key = { it.id }) { tx ->
-                val accName = accounts.find { it.id == tx.accountId }?.name ?: "Cuenta"
+                val accName = accounts.find { it.id == tx.accountId }?.name
+                    ?: if (tx.accountId == "EXTERNAL") "Dinero Externo" else "Cuenta"
                 TransactionRow(
                     transaction = tx,
                     accountName = accName,
-                    onDelete = { viewModel.deleteTransaction(tx) }
+                    onClick = { transactionToEdit = tx },
+                    onEdit = { transactionToEdit = tx },
+                    onDelete = { transactionToDelete = tx }
                 )
             }
         }
@@ -326,6 +338,55 @@ fun DashboardScreen(
         item {
             Spacer(modifier = Modifier.height(60.dp))
         }
+    }
+
+    transactionToEdit?.let { oldTx ->
+        AddTransactionDialog(
+            transactionToEdit = oldTx,
+            accounts = accounts,
+            customExpenseCategories = settings.customExpenseCategories,
+            customIncomeCategories = settings.customIncomeCategories,
+            onDismiss = { transactionToEdit = null },
+            onSave = { updatedTx ->
+                viewModel.updateTransaction(oldTx, updatedTx)
+                transactionToEdit = null
+            },
+            onDelete = { txToRemove ->
+                viewModel.deleteTransaction(txToRemove)
+                transactionToEdit = null
+            },
+            onCreateCategory = { name, isInc -> viewModel.addCustomCategory(name, isInc) }
+        )
+    }
+
+    transactionToDelete?.let { tx ->
+        AlertDialog(
+            onDismissRequest = { transactionToDelete = null },
+            containerColor = SlateCard,
+            title = { Text("¿Eliminar movimiento?", fontWeight = FontWeight.Bold, color = TextPrimaryDark) },
+            text = {
+                Text(
+                    "Se eliminará '${tx.description.ifBlank { tx.category }}' y se revertirá su impacto en el saldo de la cuenta.",
+                    color = TextSecondaryDark
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteTransaction(tx)
+                        transactionToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
+                ) {
+                    Text("Eliminar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { transactionToDelete = null }) {
+                    Text("Cancelar", color = TextSecondaryDark)
+                }
+            }
+        )
     }
 }
 
