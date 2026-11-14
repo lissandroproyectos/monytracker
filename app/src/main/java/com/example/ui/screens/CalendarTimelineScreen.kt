@@ -152,7 +152,7 @@ fun CalendarTimelineScreen(
 
     // Total initial available money in liquid operational accounts
     val totalAvailableNow = remember(accounts, rates, health.displayCurrency) {
-        accounts.filter { !it.isSavings }.sumOf { acc ->
+        accounts.filter { !it.isSavings && !it.isClosed }.sumOf { acc ->
             rates.convert(acc.currentBalance, AppCurrency.fromCode(acc.currency), health.displayCurrency)
         }
     }
@@ -447,8 +447,8 @@ fun MonthlyCalendarView(
     val monthNetBalance = totalIncomeMonth - totalExpensesMonth
     val hasDeficitMonth = totalExpensesMonth > totalIncomeMonth || simulatedMonthEvents.any { it.availableBalanceAfter < 0 }
 
-    val operatingAccounts = remember(accounts) { accounts.filter { !it.isSavings && !it.isPlanStartAccount } }
-    val savingsAccounts = remember(accounts) { accounts.filter { it.isSavings } }
+    val operatingAccounts = remember(accounts) { accounts.filter { !it.isSavings && !it.isPlanStartAccount && !it.isClosed } }
+    val savingsAccounts = remember(accounts) { accounts.filter { it.isSavings && !it.isClosed } }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -851,7 +851,7 @@ fun MonthlyCalendarView(
                     viewModel.addTransaction(
                         Transaction(
                             userId = viewModel.currentUserId,
-                            accountId = account?.id ?: "",
+                            accountId = account?.id ?: "EXTERNAL",
                             type = TransactionType.EXPENSE.name,
                             amount = amount,
                             currency = event.currency.name,
@@ -866,7 +866,7 @@ fun MonthlyCalendarView(
                     viewModel.addTransaction(
                         Transaction(
                             userId = viewModel.currentUserId,
-                            accountId = account?.id ?: "",
+                            accountId = account?.id ?: "EXTERNAL",
                             type = TransactionType.INCOME.name,
                             amount = amount,
                             currency = event.currency.name,
@@ -1174,8 +1174,8 @@ fun PaymentPlanProjectionView(
 
     val finalAvailableBalance = simulatedTimeline.lastOrNull()?.availableBalanceAfter ?: initialAvailable
 
-    val operatingAccounts = remember(accounts) { accounts.filter { !it.isSavings && !it.isPlanStartAccount } }
-    val savingsAccounts = remember(accounts) { accounts.filter { it.isSavings } }
+    val operatingAccounts = remember(accounts) { accounts.filter { !it.isSavings && !it.isPlanStartAccount && !it.isClosed } }
+    val savingsAccounts = remember(accounts) { accounts.filter { it.isSavings && !it.isClosed } }
 
     val currentSavingsTotal = remember(savingsAccounts, rates, displayCurrency) {
         val total = savingsAccounts.sumOf { acc ->
@@ -1384,7 +1384,7 @@ fun PaymentPlanProjectionView(
 
         // Card: Cálculo de Monto para Inicio del Plan (Hasta el 1er Ingreso)
         item {
-            val planStartAcc = accounts.firstOrNull { it.isPlanStartAccount }
+            val planStartAcc = accounts.firstOrNull { it.isPlanStartAccount && !it.isClosed }
             PlanInitialCapitalCard(
                 startDate = startDate,
                 firstIncomeEvent = firstIncomeEvent,
@@ -1900,7 +1900,7 @@ fun PaymentPlanProjectionView(
                     viewModel.addTransaction(
                         Transaction(
                             userId = viewModel.currentUserId,
-                            accountId = account?.id ?: "",
+                            accountId = account?.id ?: "EXTERNAL",
                             type = TransactionType.EXPENSE.name,
                             amount = amount,
                             currency = event.currency.name,
@@ -1915,7 +1915,7 @@ fun PaymentPlanProjectionView(
                     viewModel.addTransaction(
                         Transaction(
                             userId = viewModel.currentUserId,
-                            accountId = account?.id ?: "",
+                            accountId = account?.id ?: "EXTERNAL",
                             type = TransactionType.INCOME.name,
                             amount = amount,
                             currency = event.currency.name,
@@ -2413,7 +2413,7 @@ private fun generatePlannedEvents(
     }
 
     // 2. Periodic Incomes configured on Accounts
-    accounts.filter { it.hasPeriodicIncome && it.periodicIncomeAmount > 0 }.forEach { acc ->
+    accounts.filter { !it.isClosed && it.hasPeriodicIncome && it.periodicIncomeAmount > 0 }.forEach { acc ->
         val incCurr = AppCurrency.fromCode(acc.periodicIncomeCurrency)
         val iterCal = Calendar.getInstance().apply { time = startDate }
 
@@ -2717,7 +2717,7 @@ fun PlanInitialCapitalCard(
             }
 
             Text(
-                text = "Toca para inyectar este dinero en la cuenta oculta 'Inicio del Plan', lista para cubrir egresos hasta tu primer cobro:",
+                text = "Toca para inyectar este dinero en la cuenta 'Inicio del Plan' (editable en Cuentas hasta cerrarla), lista para cubrir egresos hasta tu primer cobro:",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondaryDark,
                 fontSize = 12.sp
@@ -2828,7 +2828,7 @@ fun PlanInitialCapitalCard(
                     Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = if (planStartAccount != null && planStartAccount.currentBalance > 0)
+                        text = if (planStartAccount != null && !planStartAccount.isClosed && planStartAccount.currentBalance > 0)
                             "Actualizar 'Inicio del Plan' (${formatCurrency(targetInjectAmount, displayCurrency.symbol)})"
                         else
                             "Inyectar Capital a 'Inicio del Plan' (${formatCurrency(targetInjectAmount, displayCurrency.symbol)})",
@@ -2838,7 +2838,7 @@ fun PlanInitialCapitalCard(
                 }
             }
 
-            if (planStartAccount != null && planStartAccount.currentBalance > 0) {
+            if (planStartAccount != null && !planStartAccount.isClosed && planStartAccount.currentBalance > 0) {
                 Surface(
                     shape = RoundedCornerShape(10.dp),
                     color = EmeraldDark.copy(alpha = 0.25f),

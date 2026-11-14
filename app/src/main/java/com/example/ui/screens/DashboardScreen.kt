@@ -104,7 +104,7 @@ fun DashboardScreen(
     var transactionToEdit by remember { mutableStateOf<Transaction?>(null) }
     var transactionToDelete by remember { mutableStateOf<Transaction?>(null) }
 
-    val visibleAccounts = remember(accounts) { accounts.filter { !it.isPlanStartAccount } }
+    val visibleAccounts = remember(accounts) { accounts.filter { !it.isClosed } }
     val activeCommitments = commitments.filter { it.status == "ACTIVE" }
     val recentTransactions = transactions.take(4)
 

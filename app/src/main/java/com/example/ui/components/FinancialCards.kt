@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.CurrencyExchange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FormatListNumbered
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Payment
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Savings
@@ -603,6 +604,21 @@ fun AccountItemCard(
                                     )
                                 }
                             }
+                            if (account.isPlanStartAccount && !account.isClosed) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    color = Color(0xFF6366F1).copy(alpha = 0.25f),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text(
+                                        text = "Plan Inicial",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color(0xFFA5B4FC),
+                                        fontSize = 9.sp,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
                         }
                         Text(
                             text = "${accCurrency.flagEmoji} ${accCurrency.displayName}",
@@ -663,24 +679,22 @@ fun AccountItemCard(
                         )
                     }
 
-                    if (!account.isPlanStartAccount) {
-                        IconButton(
-                            onClick = onDelete,
-                            modifier = Modifier.testTag("delete_account_${account.id}")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Eliminar cuenta",
-                                tint = AccentRed.copy(alpha = 0.8f),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.testTag("delete_account_${account.id}")
+                    ) {
+                        Icon(
+                            imageVector = if (account.isPlanStartAccount) Icons.Default.Lock else Icons.Default.Delete,
+                            contentDescription = if (account.isPlanStartAccount) "Cerrar cuenta" else "Eliminar cuenta",
+                            tint = AccentRed.copy(alpha = 0.8f),
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
                 }
             }
 
             // Quick action buttons for extra income or extra expense on this specific account
-            if (onAddIncome != null || onAddExpense != null) {
+            if (onAddIncome != null || onAddExpense != null || account.isPlanStartAccount) {
                 Spacer(modifier = Modifier.height(10.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -744,6 +758,38 @@ fun AccountItemCard(
                                     text = "- Egreso Extra",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = AccentRed,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+
+                    if (account.isPlanStartAccount) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFF6366F1).copy(alpha = 0.18f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onDelete() }
+                                .testTag("acc_close_plan_start_${account.id}")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(vertical = 7.dp, horizontal = 8.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = Color(0xFFA5B4FC),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Cerrar Cuenta",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFFA5B4FC),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 11.sp
                                 )

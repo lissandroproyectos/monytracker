@@ -79,7 +79,7 @@ fun AccountsScreen(
     var transactionToEdit by remember { mutableStateOf<Transaction?>(null) }
     var transactionToDelete by remember { mutableStateOf<Transaction?>(null) }
 
-    val visibleAccounts = remember(accounts) { accounts.filter { !it.isPlanStartAccount } }
+    val visibleAccounts = remember(accounts) { accounts.filter { !it.isClosed } }
     val totalBalance = visibleAccounts.sumOf { it.currentBalance }
     val savingsAccounts = visibleAccounts.filter { it.isSavings || it.type == AccountType.SAVINGS.name }
     val savingsTotal = savingsAccounts.sumOf { it.currentBalance }
@@ -338,32 +338,58 @@ fun AccountsScreen(
     }
 
     if (accountToDelete != null) {
+        val acc = accountToDelete!!
+        val isPlanStart = acc.isPlanStartAccount
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { accountToDelete = null },
-            title = { Text("¿Eliminar cuenta?", fontWeight = FontWeight.Bold) },
-            text = { Text("Se eliminará la cuenta '${accountToDelete?.name}' de forma permanente.") },
+            containerColor = SlateCard,
+            title = {
+                Text(
+                    text = if (isPlanStart) "¿Cerrar cuenta '${acc.name}'?" else "¿Eliminar cuenta?",
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimaryDark
+                )
+            },
+            text = {
+                Text(
+                    text = if (isPlanStart) {
+                        "Al cerrar la cuenta de Inicio del Plan, su saldo restante (${formatCurrency(acc.currentBalance)}) pasará a $0.00 y dejará de mostrarse como cuenta activa hasta que vuelvas a inyectar capital desde el Plan."
+                    } else {
+                        "Se eliminará la cuenta '${acc.name}' de forma permanente."
+                    },
+                    color = TextSecondaryDark
+                )
+            },
             confirmButton = {
                 androidx.compose.material3.TextButton(
                     onClick = {
-                        accountToDelete?.let { viewModel.deleteAccount(it.id) }
+                        if (isPlanStart) {
+                            viewModel.closePlanStartAccount(acc)
+                        } else {
+                            viewModel.deleteAccount(acc.id)
+                        }
                         accountToDelete = null
                     }
                 ) {
-                    Text("Eliminar", color = com.example.ui.theme.AccentRed)
+                    Text(
+                        text = if (isPlanStart) "Cerrar Cuenta" else "Eliminar",
+                        color = com.example.ui.theme.AccentRed,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             },
             dismissButton = {
                 androidx.compose.material3.TextButton(onClick = { accountToDelete = null }) {
-                    Text("Cancelar")
+                    Text("Cancelar", color = TextSecondaryDark)
                 }
             }
         )
     }
 
-    if (showTransferDialog && accounts.size >= 2) {
+    if (showTransferDialog && visibleAccounts.size >= 2) {
         AddTransactionDialog(
             initialType = TransactionType.TRANSFER.name,
-            accounts = accounts,
+            accounts = visibleAccounts,
             customExpenseCategories = settings.customExpenseCategories,
             customIncomeCategories = settings.customIncomeCategories,
             onDismiss = { showTransferDialog = false },

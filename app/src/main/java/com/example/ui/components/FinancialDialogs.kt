@@ -311,6 +311,33 @@ fun AddAccountDialog(
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
+                        if (accountToEdit?.isPlanStartAccount == true) {
+                            Surface(
+                                color = Color(0xFF6366F1).copy(alpha = 0.16f),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Info,
+                                        contentDescription = null,
+                                        tint = Color(0xFFA5B4FC),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Cuenta de Inicio del Plan: es editable mientras esté abierta. Al cerrarla, su saldo pasará a $0.00 y se archivará.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextPrimaryDark,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
+
                         OutlinedTextField(
                             value = name,
                             onValueChange = { name = it },
@@ -387,20 +414,21 @@ fun AddAccountDialog(
                             singleLine = true
                         )
 
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(
-                                checked = isSavings,
-                                onCheckedChange = { isSavings = it }
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Destinar como Fondo de Ahorro / Colchón",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = TextPrimaryDark
-                            )
-                        }
+                        if (accountToEdit?.isPlanStartAccount != true) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = isSavings,
+                                    onCheckedChange = { isSavings = it }
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Destinar como Fondo de Ahorro / Colchón",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = TextPrimaryDark
+                                )
+                            }
 
-                        // Periodic Income Section
+                            // Periodic Income Section
                         Card(
                             colors = CardDefaults.cardColors(containerColor = SlateCardLight),
                             shape = RoundedCornerShape(14.dp),
@@ -502,6 +530,7 @@ fun AddAccountDialog(
                                 }
                             }
                         }
+                        }
 
                         Text(
                             text = "Color distintivo",
@@ -561,14 +590,21 @@ fun AddAccountDialog(
                                     colors = ButtonDefaults.buttonColors(containerColor = AccentRed),
                                     contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
                                 ) {
-                                    Text("Eliminar", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
+                                    Text(
+                                        text = if (accountToEdit?.isPlanStartAccount == true) "Cerrar Cuenta" else "Eliminar",
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        fontSize = 12.sp
+                                    )
                                 }
                             }
 
                             Button(
                                 onClick = {
-                                    val parsed = balanceText.toDoubleOrNull() ?: 0.0
-                                    val parsedPeriodicAmount = periodicIncomeAmountText.toDoubleOrNull() ?: 0.0
+                                    val rawParsed = balanceText.replace(",", ".").toDoubleOrNull() ?: 0.0
+                                    val parsed = kotlin.math.round(rawParsed * 100.0) / 100.0
+                                    val rawPeriodic = periodicIncomeAmountText.replace(",", ".").toDoubleOrNull() ?: 0.0
+                                    val parsedPeriodicAmount = kotlin.math.round(rawPeriodic * 100.0) / 100.0
                                     val parsedDay = periodicDayOfMonthText.toIntOrNull() ?: 15
                                     if (name.isNotBlank()) {
                                         onSave(
@@ -582,13 +618,15 @@ fun AddAccountDialog(
                                                 currency = selectedCurrency.name,
                                                 colorHex = selectedColor,
                                                 iconName = selectedType.iconRes,
-                                                isSavings = isSavings,
-                                                hasPeriodicIncome = hasPeriodicIncome,
+                                                isSavings = if (accountToEdit?.isPlanStartAccount == true) false else isSavings,
+                                                hasPeriodicIncome = if (accountToEdit?.isPlanStartAccount == true) false else hasPeriodicIncome,
                                                 periodicIncomeAmount = parsedPeriodicAmount,
                                                 periodicIncomeCurrency = selectedCurrency.name,
                                                 periodicIncomeFrequency = periodicFreq,
                                                 periodicIncomeDayOfMonth = parsedDay.coerceIn(1, 31),
                                                 periodicIncomeDescription = periodicIncomeDesc.trim().ifBlank { "Sueldo" },
+                                                isSystemAccount = accountToEdit?.isSystemAccount ?: false,
+                                                isClosed = accountToEdit?.isClosed ?: false,
                                                 createdAt = accountToEdit?.createdAt
                                             )
                                         )
@@ -646,22 +684,26 @@ fun AddTransactionDialog(
 
     var selectedAccountId by remember(transactionToEdit, preselectedAccountId) {
         mutableStateOf(
-            transactionToEdit?.accountId?.takeIf { it.isNotBlank() }
-                ?: preselectedAccountId.takeIf { !it.isNullOrBlank() }
-                ?: accounts.firstOrNull { !it.isPlanStartAccount }?.id
-                ?: accounts.firstOrNull()?.id
-                ?: ""
+            if (transactionToEdit != null) {
+                transactionToEdit.accountId.takeIf { it.isNotBlank() } ?: "EXTERNAL"
+            } else {
+                preselectedAccountId?.takeIf { it.isNotBlank() }
+                    ?: accounts.firstOrNull { !it.isPlanStartAccount && !it.isClosed }?.id
+                    ?: accounts.firstOrNull { !it.isClosed }?.id
+                    ?: "EXTERNAL"
+            }
         )
     }
     var targetAccountId by remember(transactionToEdit) {
         mutableStateOf(
             transactionToEdit?.targetAccountId?.takeIf { it.isNotBlank() }
-                ?: accounts.getOrNull(1)?.id
+                ?: accounts.filter { !it.isClosed && !it.isPlanStartAccount && it.id != selectedAccountId }.firstOrNull()?.id
+                ?: accounts.filter { !it.isClosed && it.id != selectedAccountId }.firstOrNull()?.id
                 ?: ""
         )
     }
 
-    val currentAcc = accounts.find { it.id == selectedAccountId } ?: accounts.firstOrNull()
+    val currentAcc = accounts.find { it.id == selectedAccountId } ?: accounts.firstOrNull { !it.isClosed }
     var selectedCurrency by remember(transactionToEdit) {
         mutableStateOf(
             if (transactionToEdit != null) AppCurrency.fromCode(transactionToEdit.currency)
@@ -863,12 +905,15 @@ fun AddTransactionDialog(
                     )
                 }
 
-                // Filter accounts: Income cannot target plan start account; Expense can use plan start account if balance > 0 (or keep currently assigned account in edit mode)
+                // Filter accounts: exclude closed accounts; Income cannot target plan start account; Expense can use open plan start account if balance > 0 (or keep currently assigned account in edit mode)
                 val selectableAccounts = remember(accounts, type, transactionToEdit) {
                     if (type == TransactionType.INCOME.name) {
-                        accounts.filter { !it.isPlanStartAccount || it.id == transactionToEdit?.accountId }
+                        accounts.filter { (!it.isClosed && !it.isPlanStartAccount) || it.id == transactionToEdit?.accountId }
                     } else {
-                        accounts.filter { !it.isPlanStartAccount || it.currentBalance > 0 || it.id == transactionToEdit?.accountId }
+                        accounts.filter {
+                            (!it.isClosed && (!it.isPlanStartAccount || it.currentBalance > 0)) ||
+                                it.id == transactionToEdit?.accountId
+                        }
                     }
                 }
 
@@ -877,8 +922,11 @@ fun AddTransactionDialog(
                     expanded = accountExpanded,
                     onExpandedChange = { accountExpanded = it }
                 ) {
-                    val currentAccName = selectableAccounts.find { it.id == selectedAccountId }?.name
-                        ?: if (selectedAccountId == "EXTERNAL") "Dinero Externo" else "Seleccionar Cuenta"
+                    val currentAccName = if (selectedAccountId == "EXTERNAL") {
+                        "🌐 Dinero Externo (Sin afectar cuentas)"
+                    } else {
+                        selectableAccounts.find { it.id == selectedAccountId }?.name ?: "Seleccionar Cuenta"
+                    }
                     OutlinedTextField(
                         value = currentAccName,
                         onValueChange = {},
@@ -891,6 +939,16 @@ fun AddTransactionDialog(
                         expanded = accountExpanded,
                         onDismissRequest = { accountExpanded = false }
                     ) {
+                        if (type != TransactionType.TRANSFER.name) {
+                            DropdownMenuItem(
+                                text = { Text("🌐 Dinero Externo (Sin afectar cuentas)") },
+                                onClick = {
+                                    selectedAccountId = "EXTERNAL"
+                                    accountExpanded = false
+                                }
+                            )
+                            HorizontalDivider(color = SlateBackground)
+                        }
                         selectableAccounts.forEach { acc ->
                             DropdownMenuItem(
                                 text = { Text("${acc.name} (${acc.currency}) - Saldo: ${formatCurrency(acc.currentBalance)}") },
@@ -951,7 +1009,7 @@ fun AddTransactionDialog(
                             expanded = targetAccountExpanded,
                             onDismissRequest = { targetAccountExpanded = false }
                         ) {
-                            accounts.filter { it.id != selectedAccountId && (!it.isPlanStartAccount || it.id == transactionToEdit?.targetAccountId) }.forEach { acc ->
+                            accounts.filter { it.id != selectedAccountId && ((!it.isClosed && !it.isPlanStartAccount) || it.id == transactionToEdit?.targetAccountId) }.forEach { acc ->
                                 DropdownMenuItem(
                                     text = { Text("${acc.name} (${acc.currency})") },
                                     onClick = {
@@ -3345,13 +3403,13 @@ fun PayCommitmentDialog(
     val commCurrency = AppCurrency.fromCode(commitment.currency)
     var amountText by remember { mutableStateOf(String.format(Locale.US, "%.2f", suggestedAmount)) }
     val payAccounts = remember(accounts) {
-        accounts.filter { !it.isPlanStartAccount || it.currentBalance > 0 }
+        accounts.filter { !it.isClosed && (!it.isPlanStartAccount || it.currentBalance > 0) }
     }
 
     var selectedAccountId by remember {
         mutableStateOf(
             commitment.accountId?.takeIf { id -> payAccounts.any { it.id == id } }
-                ?: payAccounts.firstOrNull { it.isPlanStartAccount }?.id
+                ?: payAccounts.firstOrNull { !it.isPlanStartAccount }?.id
                 ?: payAccounts.firstOrNull()?.id
                 ?: "EXTERNAL"
         )
@@ -3561,7 +3619,7 @@ fun PayCommitmentDialog(
                                     onConfirm(
                                         InstallmentPayment(
                                             commitmentId = commitment.id,
-                                            accountId = selectedAccount?.id ?: "",
+                                            accountId = selectedAccount?.id ?: "EXTERNAL",
                                             amount = amount,
                                             currency = commitment.currency,
                                             installmentNumber = commitment.paidInstallments + 1L,
@@ -3720,22 +3778,24 @@ fun ConfirmPaymentDialog(
     var amountText by remember { mutableStateOf(String.format(Locale.US, "%.2f", suggestedAmount)) }
 
     val payAccounts = remember(accounts) {
-        accounts.filter { !it.isPlanStartAccount || it.currentBalance > 0 }
+        accounts.filter { !it.isClosed && (!it.isPlanStartAccount || it.currentBalance > 0) }
     }
 
     // selectedAccountId == "EXTERNAL" means Dinero Externo / Sin Afectar Cuentas
     var selectedAccountId by remember {
         mutableStateOf(
             if (initialAccountId != null) {
-                if (initialAccountId == "EXTERNAL" || accounts.any { it.id == initialAccountId }) {
+                if (initialAccountId.isBlank() || initialAccountId == "EXTERNAL") {
+                    "EXTERNAL"
+                } else if (accounts.any { it.id == initialAccountId && !it.isClosed }) {
                     initialAccountId
                 } else {
-                    payAccounts.firstOrNull { it.isPlanStartAccount }?.id
+                    payAccounts.firstOrNull { !it.isPlanStartAccount }?.id
                         ?: payAccounts.firstOrNull()?.id
                         ?: "EXTERNAL"
                 }
             } else {
-                payAccounts.firstOrNull { it.isPlanStartAccount }?.id
+                payAccounts.firstOrNull { !it.isPlanStartAccount }?.id
                     ?: payAccounts.firstOrNull()?.id
                     ?: "EXTERNAL"
             }
@@ -3949,7 +4009,8 @@ fun ConfirmPaymentDialog(
                         }
                         Button(
                             onClick = {
-                                val amount = amountText.toDoubleOrNull() ?: suggestedAmount
+                                val rawAmt = amountText.replace(",", ".").toDoubleOrNull() ?: suggestedAmount
+                                val amount = kotlin.math.round(rawAmt * 100.0) / 100.0
                                 val account = payAccounts.find { it.id == selectedAccountId }
                                 onConfirm(account, selectedDate, amount, notes.trim())
                             },
@@ -4203,7 +4264,7 @@ fun EventDetailDialog(
                                 Text(if (event.isIncome) "Cuenta receptora:" else "Cuenta pagadora:", style = MaterialTheme.typography.bodyMedium, color = TextSecondaryDark)
                                 val accLabel = if (payingAccount != null) {
                                     "${payingAccount.name} (${payingAccount.currency})"
-                                } else if (matchedTx != null && matchedTx.accountId.isNotBlank()) {
+                                } else if (matchedTx != null && matchedTx.accountId.isNotBlank() && matchedTx.accountId != "EXTERNAL") {
                                     "Cuenta registrada"
                                 } else {
                                     "🌐 Dinero Externo (Sin salida de cuentas)"
@@ -4307,15 +4368,19 @@ fun TransferSurplusDialog(
     var amountText by remember { mutableStateOf(String.format(Locale.US, "%.2f", suggestedAmount)) }
 
     val validOperatingAccounts = remember(operatingAccounts) {
-        operatingAccounts.filter { !it.isSavings && !it.isPlanStartAccount && it.currentBalance > 0 }
+        operatingAccounts.filter { !it.isSavings && !it.isPlanStartAccount && !it.isClosed && it.currentBalance > 0 }
     }
 
     var selectedFromAccountId by remember {
         mutableStateOf(validOperatingAccounts.maxByOrNull { it.currentBalance }?.id ?: validOperatingAccounts.firstOrNull()?.id ?: "")
     }
 
+    val openSavingsAccounts = remember(savingsAccounts) {
+        savingsAccounts.filter { !it.isClosed }
+    }
+
     var selectedToAccountId by remember {
-        mutableStateOf(savingsAccounts.firstOrNull()?.id ?: "")
+        mutableStateOf(openSavingsAccounts.firstOrNull()?.id ?: "")
     }
 
     var notes by remember { mutableStateOf("Destinar excedente a Fondo de Ahorro") }
@@ -4458,11 +4523,11 @@ fun TransferSurplusDialog(
                         expanded = toExpanded,
                         onExpandedChange = { toExpanded = it }
                     ) {
-                        val selectedTo = savingsAccounts.find { it.id == selectedToAccountId }
+                        val selectedTo = openSavingsAccounts.find { it.id == selectedToAccountId }
                         val label = if (selectedTo != null) {
                             val curr = AppCurrency.fromCode(selectedTo.currency)
                             "${selectedTo.name} • Saldo: ${formatCurrency(selectedTo.currentBalance, curr.symbol)}"
-                        } else if (savingsAccounts.isNotEmpty()) {
+                        } else if (openSavingsAccounts.isNotEmpty()) {
                             "Seleccionar cuenta de ahorros destino"
                         } else {
                             "Crear automáticamente: Fondo de Ahorro / Colchón"
@@ -4476,12 +4541,12 @@ fun TransferSurplusDialog(
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = toExpanded) },
                             modifier = Modifier.menuAnchor().fillMaxWidth()
                         )
-                        if (savingsAccounts.isNotEmpty()) {
+                        if (openSavingsAccounts.isNotEmpty()) {
                             ExposedDropdownMenu(
                                 expanded = toExpanded,
                                 onDismissRequest = { toExpanded = false }
                             ) {
-                                savingsAccounts.forEach { acc ->
+                                openSavingsAccounts.forEach { acc ->
                                     val curr = AppCurrency.fromCode(acc.currency)
                                     DropdownMenuItem(
                                         text = { Text("${acc.name} (${acc.currency}) • Saldo: ${formatCurrency(acc.currentBalance, curr.symbol)}") },
@@ -4516,11 +4581,12 @@ fun TransferSurplusDialog(
                         }
                         Button(
                             onClick = {
-                                val amt = amountText.toDoubleOrNull() ?: suggestedAmount
+                                val rawAmt = amountText.replace(",", ".").toDoubleOrNull() ?: suggestedAmount
+                                val amt = kotlin.math.round(rawAmt * 100.0) / 100.0
                                 val fromAcc = validOperatingAccounts.find { it.id == selectedFromAccountId }
                                     ?: validOperatingAccounts.firstOrNull()
-                                val toAcc = savingsAccounts.find { it.id == selectedToAccountId }
-                                    ?: savingsAccounts.firstOrNull()
+                                val toAcc = openSavingsAccounts.find { it.id == selectedToAccountId }
+                                    ?: openSavingsAccounts.firstOrNull()
                                 if (fromAcc != null && toAcc != null) {
                                     onConfirm(fromAcc, toAcc, amt, notes.trim())
                                 } else if (fromAcc != null) {

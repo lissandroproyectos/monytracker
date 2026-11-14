@@ -34,6 +34,7 @@ data class Account(
     val periodicIncomeDayOfMonth: Int = 15,
     val periodicIncomeDescription: String = "Sueldo / Honorarios",
     val isSystemAccount: Boolean = false,
+    val isClosed: Boolean = false,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 ) {
@@ -58,6 +59,7 @@ data class Account(
             "periodicIncomeDayOfMonth" to periodicIncomeDayOfMonth,
             "periodicIncomeDescription" to periodicIncomeDescription,
             "isSystemAccount" to isSystemAccount,
+            "isClosed" to isClosed,
             "createdAt" to (createdAt ?: FieldValue.serverTimestamp()),
             "updatedAt" to FieldValue.serverTimestamp()
         )

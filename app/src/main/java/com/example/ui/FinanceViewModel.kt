@@ -119,9 +119,9 @@ class FinanceViewModel(
         val dispCurr = AppCurrency.fromCode(userSettings.displayCurrency)
         val payCurr = AppCurrency.fromCode(userSettings.paymentCurrency)
 
-        // Operating liquid cash vs Savings
-        val liquidAccounts = accs.filter { !it.isSavings }
-        val savingsAccounts = accs.filter { it.isSavings }
+        // Operating liquid cash vs Savings (exclude closed accounts)
+        val liquidAccounts = accs.filter { !it.isSavings && !it.isClosed }
+        val savingsAccounts = accs.filter { it.isSavings && !it.isClosed }
 
         val totalAvailable = liquidAccounts.sumOf { acc ->
             rates.convert(acc.currentBalance, AppCurrency.fromCode(acc.currency), dispCurr)
@@ -207,7 +207,7 @@ class FinanceViewModel(
         }
 
         // 2. Periodic Incomes configured on Accounts
-        accs.filter { it.hasPeriodicIncome && it.periodicIncomeAmount > 0 }.forEach { acc ->
+        accs.filter { !it.isClosed && it.hasPeriodicIncome && it.periodicIncomeAmount > 0 }.forEach { acc ->
             val incCurrency = AppCurrency.fromCode(acc.periodicIncomeCurrency)
             val incAmountDisp = rates.convert(acc.periodicIncomeAmount, incCurrency, health.displayCurrency)
 
@@ -425,7 +425,8 @@ class FinanceViewModel(
                         currentBalance = roundedAmount,
                         initialBalance = roundedAmount,
                         currency = currency,
-                        isSystemAccount = true
+                        isSystemAccount = true,
+                        isClosed = false
                     )
                     repository.updateAccount(currentUserId, updated)
                 } else {
@@ -439,7 +440,8 @@ class FinanceViewModel(
                         currency = currency,
                         colorHex = "#6366F1",
                         isSavings = false,
-                        isSystemAccount = true
+                        isSystemAccount = true,
+                        isClosed = false
                     )
                     repository.createAccount(currentUserId, newAcc)
                 }
@@ -452,10 +454,26 @@ class FinanceViewModel(
         }
     }
 
+    fun closePlanStartAccount(account: Account) {
+        viewModelScope.launch {
+            try {
+                val closedAcc = account.copy(
+                    currentBalance = 0.0,
+                    isClosed = true,
+                    isSystemAccount = true
+                )
+                repository.updateAccount(currentUserId, closedAcc)
+                _userMessage.value = UiMessage.Success("Cuenta '${account.name}' cerrada")
+            } catch (e: Exception) {
+                _errorMessage.value = "Error al cerrar cuenta: ${e.localizedMessage}"
+            }
+        }
+    }
+
     fun deleteAccount(accountId: String) {
         val acc = accounts.value.firstOrNull { it.id == accountId }
         if (acc != null && acc.isPlanStartAccount) {
-            _errorMessage.value = "La cuenta 'Inicio del Plan' es del sistema y no puede ser eliminada."
+            closePlanStartAccount(acc)
             return
         }
         viewModelScope.launch {
@@ -678,36 +696,32 @@ class FinanceViewModel(
                         repository.addTransaction(currentUserId, newTx, exchangeRates.value)
                     }
                 } else if (!event.isIncome && event.commitment != null) {
-                    if (newAccount != null && newAccount.id.isNotBlank() && newAccount.id != "EXTERNAL") {
-                        val newTx = Transaction(
-                            userId = currentUserId,
-                            accountId = newAccount.id,
-                            type = "EXPENSE",
-                            amount = newAmount,
-                            currency = event.currency.name,
-                            category = event.commitment.category,
-                            description = "Pago de ${event.title}" + if (notes.isNotBlank()) " ($notes)" else "",
-                            date = Timestamp(newPaidDate),
-                            commitmentId = event.commitment.id,
-                            isFixedExpense = true,
-                            notes = notes.trim().ifBlank { null }
-                        )
-                        repository.addTransaction(currentUserId, newTx, exchangeRates.value)
-                    }
+                    val newTx = Transaction(
+                        userId = currentUserId,
+                        accountId = newAccount?.id?.takeIf { it.isNotBlank() } ?: "EXTERNAL",
+                        type = "EXPENSE",
+                        amount = newAmount,
+                        currency = event.currency.name,
+                        category = event.commitment.category,
+                        description = "Pago de ${event.title}" + if (notes.isNotBlank()) " ($notes)" else "",
+                        date = Timestamp(newPaidDate),
+                        commitmentId = event.commitment.id,
+                        isFixedExpense = true,
+                        notes = notes.trim().ifBlank { null }
+                    )
+                    repository.addTransaction(currentUserId, newTx, exchangeRates.value)
                 } else if (event.isIncome) {
-                    if (newAccount != null && newAccount.id.isNotBlank() && newAccount.id != "EXTERNAL") {
-                        val newTx = Transaction(
-                            userId = currentUserId,
-                            accountId = newAccount.id,
-                            type = "INCOME",
-                            amount = newAmount,
-                            currency = event.currency.name,
-                            description = event.title + if (notes.isNotBlank()) " ($notes)" else "",
-                            date = Timestamp(newPaidDate),
-                            notes = notes.trim().ifBlank { null }
-                        )
-                        repository.addTransaction(currentUserId, newTx, exchangeRates.value)
-                    }
+                    val newTx = Transaction(
+                        userId = currentUserId,
+                        accountId = newAccount?.id?.takeIf { it.isNotBlank() } ?: "EXTERNAL",
+                        type = "INCOME",
+                        amount = newAmount,
+                        currency = event.currency.name,
+                        description = event.title + if (notes.isNotBlank()) " ($notes)" else "",
+                        date = Timestamp(newPaidDate),
+                        notes = notes.trim().ifBlank { null }
+                    )
+                    repository.addTransaction(currentUserId, newTx, exchangeRates.value)
                 }
 
                 val accName = newAccount?.name ?: "Dinero Externo"
@@ -908,10 +922,10 @@ class FinanceViewModel(
         viewModelScope.launch {
             try {
                 var savingsAcc = if (!toAccountId.isNullOrBlank()) {
-                    accounts.value.firstOrNull { it.id == toAccountId }
+                    accounts.value.firstOrNull { it.id == toAccountId && !it.isClosed }
                 } else {
-                    accounts.value.firstOrNull { it.isSavings }
-                        ?: accounts.value.firstOrNull { it.name.contains("Ahorro", ignoreCase = true) }
+                    accounts.value.firstOrNull { it.isSavings && !it.isClosed }
+                        ?: accounts.value.firstOrNull { !it.isClosed && it.name.contains("Ahorro", ignoreCase = true) }
                 }
 
                 if (savingsAcc == null) {
@@ -929,11 +943,11 @@ class FinanceViewModel(
                 }
 
                 val sourceAcc = if (!fromAccountId.isNullOrBlank()) {
-                    accounts.value.firstOrNull { it.id == fromAccountId }
+                    accounts.value.firstOrNull { it.id == fromAccountId && !it.isClosed }
                 } else {
-                    accounts.value.filter { !it.isSavings && !it.isPlanStartAccount }
+                    accounts.value.filter { !it.isSavings && !it.isPlanStartAccount && !it.isClosed }
                         .maxByOrNull { it.currentBalance }
-                        ?: accounts.value.firstOrNull { !it.isSavings }
+                        ?: accounts.value.firstOrNull { !it.isSavings && !it.isClosed }
                 }
 
                 if (sourceAcc != null) {
