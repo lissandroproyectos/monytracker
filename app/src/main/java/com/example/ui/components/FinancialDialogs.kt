@@ -1222,7 +1222,15 @@ class AddCommitmentState(
     var hasDownPayment by mutableStateOf((commitmentToEdit?.downPayment ?: 0.0) > 0.0)
     var downPaymentText by mutableStateOf(if ((commitmentToEdit?.downPayment ?: 0.0) > 0.0) commitmentToEdit?.downPayment?.toString() ?: "" else "")
     var alreadyPaidCountText by mutableStateOf((commitmentToEdit?.paidInstallments ?: 0L).toString())
-    var fixedExpenseDueDate by mutableStateOf(try { commitmentToEdit?.dueDate?.toDate() } catch (e: Exception) { null } ?: Date())
+    var fixedExpenseDueDate by mutableStateOf(
+        try {
+            if (commitmentToEdit?.isFixedExpense == true) {
+                commitmentToEdit.startDate.toDate()
+            } else {
+                commitmentToEdit?.dueDate?.toDate()
+            }
+        } catch (e: Exception) { null } ?: Date()
+    )
     var hasEndDate by mutableStateOf(commitmentToEdit?.endDate != null)
     var fixedExpenseEndDate by mutableStateOf(try { commitmentToEdit?.endDate?.toDate() } catch (e: Exception) { null } ?: Calendar.getInstance().apply { add(Calendar.YEAR, 1) }.time)
     var fixedCyclesCountText by mutableStateOf((if (commitmentToEdit != null && commitmentToEdit.installments.isNotEmpty()) commitmentToEdit.installments.size.toLong() else 6L).toString())
@@ -1462,7 +1470,7 @@ class AddCommitmentState(
                 } else null,
                 dueDate = effectiveFixedSchedule.firstOrNull { !it.isPaid }?.dueDate ?: effectiveFixedSchedule.firstOrNull()?.dueDate ?: Timestamp(fixedExpenseDueDate),
                 accountId = defaultAccountId.ifBlank { null },
-                status = if (effectiveFixedSchedule.isNotEmpty() && effectiveFixedSchedule.all { it.isPaid }) CommitmentStatus.PAID_OFF.name else CommitmentStatus.ACTIVE.name,
+                status = if (hasEndDate && effectiveFixedSchedule.isNotEmpty() && effectiveFixedSchedule.all { it.isPaid }) CommitmentStatus.PAID_OFF.name else CommitmentStatus.ACTIVE.name,
                 notes = notes.trim().ifBlank { null },
                 installments = effectiveFixedSchedule.map { it.toMap() },
                 createdAt = commitmentToEdit?.createdAt

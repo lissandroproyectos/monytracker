@@ -1018,7 +1018,7 @@ fun CommitmentCard(
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
-                        text = if (isPaidOff) "SALDADO" else "ACTIVO",
+                        text = if (isPaidOff) "SALDADO" else if (commitment.isFixedExpense && commitment.endDate == null) "RECURRENTE" else "ACTIVO",
                         style = MaterialTheme.typography.labelSmall,
                         color = if (isPaidOff) EmeraldLight else AccentAmber,
                         fontWeight = FontWeight.Bold,
@@ -1100,41 +1100,73 @@ fun CommitmentCard(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 // Breakdown: Pagado vs Falta por pagar
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                if (commitment.isFixedExpense) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
-                            text = "Pagado: ",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondaryDark,
-                            fontSize = 11.sp
-                        )
-                        Text(
-                            text = formatCurrency(convertedPaid, displayCurrency.symbol),
+                            text = "Ciclos pagados: ${commitment.paidInstallments}/${commitment.totalInstallments}",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = EmeraldLight,
                             fontSize = 11.sp
                         )
-                    }
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "Falta: ",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondaryDark,
-                            fontSize = 11.sp
-                        )
-                        Text(
-                            text = formatCurrency(convertedRemaining, displayCurrency.symbol),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = if (convertedRemaining <= 0.001) EmeraldLight else AccentAmber,
-                            fontSize = 11.sp
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = if (commitment.endDate == null) "Próx. ciclos: " else "Falta: ",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondaryDark,
+                                fontSize = 11.sp
+                            )
+                            Text(
+                                text = formatCurrency(convertedRemaining, displayCurrency.symbol),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = AccentAmber,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Pagado: ",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondaryDark,
+                                fontSize = 11.sp
+                            )
+                            Text(
+                                text = formatCurrency(convertedPaid, displayCurrency.symbol),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = EmeraldLight,
+                                fontSize = 11.sp
+                            )
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Falta: ",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondaryDark,
+                                fontSize = 11.sp
+                            )
+                            Text(
+                                text = formatCurrency(convertedRemaining, displayCurrency.symbol),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (convertedRemaining <= 0.001) EmeraldLight else AccentAmber,
+                                fontSize = 11.sp
+                            )
+                        }
                     }
                 }
             }

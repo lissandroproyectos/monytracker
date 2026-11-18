@@ -279,6 +279,9 @@ class FinanceViewModel(
 
     init {
         refreshRates()
+        viewModelScope.launch {
+            repository.repairCorruptedFixedCommitments(currentUserId)
+        }
     }
 
     fun refreshRates() {
@@ -546,7 +549,11 @@ class FinanceViewModel(
         viewModelScope.launch {
             try {
                 val newRemaining = (commitment.remainingAmount - payment.amount).coerceAtLeast(0.0)
-                val isPaidOff = newRemaining <= 0.001
+                val isPaidOff = if (commitment.isFixedExpense && commitment.endDate == null) {
+                    false
+                } else {
+                    newRemaining <= 0.001
+                }
                 val commCurrency = AppCurrency.fromCode(commitment.currency)
 
                 repository.recordPayment(currentUserId, payment, commitment, account, exchangeRates.value)
@@ -556,7 +563,7 @@ class FinanceViewModel(
                 val title = if (isPaidOff) "¡Felicidades! 🎉 ¡Deuda Saldada!" else "¡Pago Registrado! 🎊"
                 val message = if (isPaidOff) {
                     if (commitment.isFixedExpense) {
-                        "¡Has completado el ciclo del gasto fijo \"${commitment.title}\"!"
+                        "¡Has completado el período planificado de \"${commitment.title}\"!"
                     } else {
                         "¡Has terminado y salido de la deuda \"${commitment.title}\"! Disfruta tu logro y libertad financiera."
                     }
@@ -592,6 +599,7 @@ class FinanceViewModel(
                 val willBeAllPaid = markAsPaid && currentInstallments.all {
                     if (it.number == installmentNumber) true else it.isPaid
                 }
+                val isPaidOff = willBeAllPaid && (!commitment.isFixedExpense || commitment.endDate != null)
 
                 repository.toggleInstallmentPaid(
                     currentUserId,
@@ -606,11 +614,15 @@ class FinanceViewModel(
                 val accText = payFromAccount?.let { " (${it.name})" } ?: " (dinero externo)"
                 _userMessage.value = UiMessage.Success("Cuota #$installmentNumber $statusText$accText")
 
-                if (willBeAllPaid) {
+                if (isPaidOff) {
                     val commCurrency = AppCurrency.fromCode(commitment.currency)
                     _celebrationEvent.value = CelebrationData(
-                        title = "¡Felicidades! 🎉 ¡Deuda Saldada!",
-                        message = "¡Has completado todas las cuotas de \"${commitment.title}\"! ¡Eres libre de esta deuda!",
+                        title = if (commitment.isFixedExpense) "¡Período Completado! 🎉" else "¡Felicidades! 🎉 ¡Deuda Saldada!",
+                        message = if (commitment.isFixedExpense) {
+                            "¡Has completado todos los ciclos programados de \"${commitment.title}\"!"
+                        } else {
+                            "¡Has completado todas las cuotas de \"${commitment.title}\"! ¡Eres libre de esta deuda!"
+                        },
                         commitmentTitle = commitment.title,
                         amountPaid = commitment.installmentAmount,
                         remainingAmount = 0.0,
@@ -673,8 +685,14 @@ class FinanceViewModel(
                             paidDate = Timestamp(newPaidDate),
                             amount = if (newAmount > 0) newAmount else currentInstallments[idx].amount
                         )
+                        val (paidCount, newRemaining, newStatus) = event.commitment.computeUpdatedState(currentInstallments)
+                        val nextDueDate = currentInstallments.firstOrNull { !it.isPaid }?.dueDate ?: event.commitment.dueDate
                         val updatedCommitment = event.commitment.copy(
-                            installments = currentInstallments.map { it.toMap() }
+                            installments = currentInstallments.map { it.toMap() },
+                            paidInstallments = paidCount,
+                            remainingAmount = newRemaining,
+                            status = newStatus,
+                            dueDate = nextDueDate
                         )
                         repository.updateCommitment(currentUserId, updatedCommitment)
                     }

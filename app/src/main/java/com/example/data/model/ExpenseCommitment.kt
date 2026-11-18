@@ -114,6 +114,12 @@ data class ExpenseCommitment(
 ) {
     val progressPercentage: Float
         get() {
+            if (isFixedExpense) {
+                val total = totalInstallments.toFloat()
+                if (total <= 0f) return 0f
+                val paid = paidInstallments.toFloat().coerceIn(0f, total)
+                return (paid / total).coerceIn(0f, 1f)
+            }
             if (totalAmount <= 0.0) return 1f
             val paid = (totalAmount - remainingAmount).coerceAtLeast(0.0)
             return (paid / totalAmount).toFloat().coerceIn(0f, 1f)
@@ -160,12 +166,80 @@ data class ExpenseCommitment(
         return if (unpaid != null) {
             val sdf = java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.forLanguageTag("es-ES"))
             "Próx: " + sdf.format(unpaid.dueDate.toDate())
+        } else if (isFixedExpense && endDate == null) {
+            "Recurrente activo"
         } else if (endDate != null) {
             val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
             "Fin: " + sdf.format(endDate.toDate())
         } else {
             "Saldado"
         }
+    }
+
+    /**
+     * Computes (paidCount, remainingAmount, status) consistently for both
+     * Fixed Expenses (ongoing or finite) and Temporary Debts.
+     * Ongoing fixed expenses (isFixedExpense && endDate == null) must NEVER be
+     * marked PAID_OFF automatically when individual cycle payments are recorded.
+     */
+    fun computeUpdatedState(updatedInstallments: List<ProjectedInstallment>): Triple<Long, Double, String> {
+        val paidCount = updatedInstallments.count { it.isPaid }.toLong()
+        val paidTotal = updatedInstallments.filter { it.isPaid }.sumOf { it.amount }
+        val unpaidTotal = kotlin.math.round(
+            updatedInstallments.filter { !it.isPaid }.sumOf { it.amount } * 100.0
+        ) / 100.0
+
+        return if (isFixedExpense) {
+            val newRemaining = if (updatedInstallments.isNotEmpty()) {
+                unpaidTotal
+            } else {
+                kotlin.math.round(
+                    (if (installmentAmount > 0) installmentAmount else totalAmount).coerceAtLeast(0.0) * 100.0
+                ) / 100.0
+            }
+            val newStatus = if (endDate != null && updatedInstallments.isNotEmpty() && updatedInstallments.all { it.isPaid }) {
+                CommitmentStatus.PAID_OFF.name
+            } else {
+                CommitmentStatus.ACTIVE.name
+            }
+            Triple(paidCount, newRemaining, newStatus)
+        } else {
+            val newRemaining = if (updatedInstallments.isNotEmpty()) {
+                unpaidTotal
+            } else {
+                kotlin.math.round((totalAmount - paidTotal).coerceAtLeast(0.0) * 100.0) / 100.0
+            }
+            val newStatus = if (newRemaining <= 0.001 || (updatedInstallments.isNotEmpty() && updatedInstallments.all { it.isPaid })) {
+                CommitmentStatus.PAID_OFF.name
+            } else {
+                CommitmentStatus.ACTIVE.name
+            }
+            Triple(paidCount, newRemaining, newStatus)
+        }
+    }
+
+    /**
+     * Self-heals fixed expenses that were mistakenly marked PAID_OFF due to
+     * comparing per-cycle totalAmount against multi-cycle installment totals.
+     */
+    fun normalizedIfCorruptedFixed(): ExpenseCommitment {
+        if (!isFixedExpense || status != CommitmentStatus.PAID_OFF.name) return this
+        val projected = getProjectedInstallments()
+        val isOngoing = endDate == null
+        val hasUnpaid = projected.any { !it.isPaid }
+        if (!isOngoing && !hasUnpaid) return this
+
+        val (paidCount, computedRemaining, _) = computeUpdatedState(projected)
+        val healedRemaining = if (isOngoing && computedRemaining <= 0.0) {
+            kotlin.math.round((if (installmentAmount > 0) installmentAmount else totalAmount) * 100.0) / 100.0
+        } else {
+            computedRemaining
+        }
+        return copy(
+            status = CommitmentStatus.ACTIVE.name,
+            paidInstallments = paidCount,
+            remainingAmount = healedRemaining
+        )
     }
 
     fun getProjectedInstallments(): List<ProjectedInstallment> {

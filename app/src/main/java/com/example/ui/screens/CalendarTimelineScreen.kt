@@ -2284,7 +2284,7 @@ private fun generatePlannedEvents(
                     val instDate = inst.dueDate.toDate()
                     val instMs = instDate.time
                     if (instMs in startMs..endMs && (commitmentEndLimitMs == null || instMs <= commitmentEndLimitMs)) {
-                        val isPaidInCycle = inst.isPaid || (instDate.before(Date()) && c.status == CommitmentStatus.PAID_OFF.name)
+                        val isPaidInCycle = inst.isPaid || (c.endDate != null && instDate.before(Date()) && c.status == CommitmentStatus.PAID_OFF.name)
                         events.add(
                             PlannedEvent(
                                 id = "fixed_${c.id}_${inst.number}_${instMs}",
@@ -2354,7 +2354,10 @@ private fun generatePlannedEvents(
                     val occurrenceDate = iterCal.time
                     val occMs = occurrenceDate.time
                     if (occMs in startMs..endMs && (commitmentEndLimitMs == null || occMs <= commitmentEndLimitMs)) {
-                        val isPaidInCycle = occurrenceDate.before(Date()) && c.status == CommitmentStatus.PAID_OFF.name
+                        val matchingTx = transactions.firstOrNull { tx ->
+                            tx.commitmentId == c.id && isSameDay(tx.date.toDate(), occurrenceDate)
+                        }
+                        val isPaidInCycle = matchingTx != null || (c.endDate != null && occurrenceDate.before(Date()) && c.status == CommitmentStatus.PAID_OFF.name)
                         events.add(
                             PlannedEvent(
                                 id = "fixed_${c.id}_${occMs}",
@@ -2367,7 +2370,8 @@ private fun generatePlannedEvents(
                                 isPaid = isPaidInCycle,
                                 installmentInfo = "Gasto Fijo",
                                 commitment = c,
-                                installmentNumber = null
+                                installmentNumber = null,
+                                transactionId = matchingTx?.id
                             )
                         )
                     }

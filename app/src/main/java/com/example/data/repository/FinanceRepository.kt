@@ -71,7 +71,7 @@ class FinanceRepository(
                     val parsed = BackupManager.parseJson(json, "local_guest")
                     parsed.settings?.let { _localSettings.value = it }
                     _localAccounts.value = parsed.accounts
-                    _localCommitments.value = parsed.commitments
+                    _localCommitments.value = parsed.commitments.map { it.normalizedIfCorruptedFixed() }
                     _localTransactions.value = parsed.transactions
                 }
             } catch (e: Exception) {
@@ -371,7 +371,10 @@ class FinanceRepository(
     // Expense Commitments
     fun observeCommitments(userId: String): Flow<List<ExpenseCommitment>> {
         if (isGuest(userId)) {
-            return _localCommitments.map { list -> list.sortedByDescending { it.createdAt?.seconds ?: 0L } }
+            return _localCommitments.map { list ->
+                list.map { it.normalizedIfCorruptedFixed() }
+                    .sortedByDescending { it.createdAt?.seconds ?: 0L }
+            }
         }
         return firestore.collection("users").document(userId).collection("commitments")
             .snapshots()
@@ -384,10 +387,51 @@ class FinanceRepository(
                         com.copy(
                             isFixedExpense = rawFixed ?: com.isFixedExpense,
                             isAnnualInterest = rawAnnual ?: com.isAnnualInterest
-                        )
+                        ).normalizedIfCorruptedFixed()
                     } else null
                 }.sortedByDescending { it.createdAt?.seconds ?: 0L }
             }
+    }
+
+    suspend fun repairCorruptedFixedCommitments(userId: String) {
+        try {
+            if (isGuest(userId)) {
+                var changed = false
+                val updated = _localCommitments.value.map { com ->
+                    val healed = com.normalizedIfCorruptedFixed()
+                    if (healed.status != com.status || healed.remainingAmount != com.remainingAmount) {
+                        changed = true
+                    }
+                    healed
+                }
+                if (changed) {
+                    _localCommitments.value = updated
+                    persistLocalGuestData()
+                }
+                return
+            }
+
+            val snapshot = firestore.collection("users").document(userId)
+                .collection("commitments")
+                .get()
+                .await()
+
+            for (doc in snapshot.documents) {
+                val com = doc.toObject(ExpenseCommitment::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) ?: continue
+                val rawFixed = doc.getBoolean("isFixedExpense") ?: doc.getBoolean("fixedExpense")
+                val rawAnnual = doc.getBoolean("isAnnualInterest") ?: doc.getBoolean("annualInterest")
+                val resolved = com.copy(
+                    isFixedExpense = rawFixed ?: com.isFixedExpense,
+                    isAnnualInterest = rawAnnual ?: com.isAnnualInterest
+                )
+                val healed = resolved.normalizedIfCorruptedFixed()
+                if (healed.status != resolved.status || kotlin.math.abs(healed.remainingAmount - resolved.remainingAmount) > 0.01) {
+                    updateCommitment(userId, healed)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed repairing fixed commitments: ${e.message}")
+        }
     }
 
     suspend fun createCommitment(userId: String, commitment: ExpenseCommitment): String {
@@ -461,20 +505,19 @@ class FinanceRepository(
         )
         currentInstallments[index] = updatedInstallment
 
-        val paidCount = currentInstallments.count { it.isPaid }.toLong()
-        val paidTotal = currentInstallments.filter { it.isPaid }.sumOf { it.amount }
-        val newRemaining = (commitment.totalAmount - paidTotal).coerceAtLeast(0.0)
-        val newStatus = if (newRemaining <= 0.001) CommitmentStatus.PAID_OFF.name else CommitmentStatus.ACTIVE.name
+        val (paidCount, newRemaining, newStatus) = commitment.computeUpdatedState(currentInstallments)
+        val nextDueDate = currentInstallments.firstOrNull { !it.isPaid }?.dueDate ?: commitment.dueDate
 
         val updatedCommitment = commitment.copy(
             installments = currentInstallments.map { it.toMap() },
             paidInstallments = paidCount,
             remainingAmount = newRemaining,
-            status = newStatus
+            status = newStatus,
+            dueDate = nextDueDate
         )
         updateCommitment(userId, updatedCommitment)
 
-        if (markAsPaid && payFromAccount != null) {
+        if (markAsPaid && payFromAccount != null && payFromAccount.id.isNotBlank() && payFromAccount.id != "EXTERNAL") {
             val tx = Transaction(
                 userId = userId,
                 accountId = payFromAccount.id,
@@ -500,13 +543,6 @@ class FinanceRepository(
     ) {
         require(payment.amount > 0)
 
-        val newRemaining = (commitment.remainingAmount - payment.amount).coerceAtLeast(0.0)
-        val newPaidCount = if (commitment.paymentMode == PaymentMode.INSTALLMENTS.name) {
-            commitment.paidInstallments + 1L
-        } else commitment.paidInstallments
-
-        val newStatus = if (newRemaining <= 0.001) CommitmentStatus.PAID_OFF.name else commitment.status
-
         val currentInstallments = commitment.getProjectedInstallments().toMutableList()
         val unpaidFirst = currentInstallments.indexOfFirst { !it.isPaid }
         if (unpaidFirst != -1) {
@@ -516,10 +552,28 @@ class FinanceRepository(
             )
         }
 
+        val (newPaidCount, newRemaining, newStatus) = if (commitment.isFixedExpense) {
+            val (paidC, rem, st) = commitment.computeUpdatedState(currentInstallments)
+            val safeRemaining = if (currentInstallments.isEmpty()) {
+                kotlin.math.round((commitment.remainingAmount - payment.amount).coerceAtLeast(0.0) * 100.0) / 100.0
+            } else rem
+            Triple(paidC, safeRemaining, st)
+        } else {
+            val rem = kotlin.math.round((commitment.remainingAmount - payment.amount).coerceAtLeast(0.0) * 100.0) / 100.0
+            val paidC = if (commitment.paymentMode == PaymentMode.INSTALLMENTS.name) {
+                commitment.paidInstallments + 1L
+            } else commitment.paidInstallments
+            val st = if (rem <= 0.001) CommitmentStatus.PAID_OFF.name else commitment.status
+            Triple(paidC, rem, st)
+        }
+
+        val nextDueDate = currentInstallments.firstOrNull { !it.isPaid }?.dueDate ?: commitment.dueDate
+
         val updatedCommitment = commitment.copy(
             remainingAmount = newRemaining,
             paidInstallments = newPaidCount,
             status = newStatus,
+            dueDate = nextDueDate,
             installments = currentInstallments.map { it.toMap() }
         )
 

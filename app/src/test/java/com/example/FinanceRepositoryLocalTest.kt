@@ -69,4 +69,63 @@ class FinanceRepositoryLocalTest {
         val commitments = repository.observeCommitments(guestUserId).first()
         assertTrue(commitments.any { it.title == "Servicio Local" })
     }
+
+    @Test
+    fun fixedExpense_singleInstallmentPayment_staysActiveAndTracksCycles() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repository = FinanceRepository(null, context)
+        val guestUserId = "local_guest"
+
+        val fixed = ExpenseCommitment(
+            title = "Internet Mensual",
+            totalAmount = 50.0,
+            remainingAmount = 300.0,
+            installmentAmount = 50.0,
+            totalInstallments = 6L,
+            isFixedExpense = true,
+            paymentMode = PaymentMode.INSTALLMENTS.name,
+            category = "Servicios"
+        )
+        val commId = repository.createCommitment(guestUserId, fixed)
+        val created = repository.observeCommitments(guestUserId).first().first { it.id == commId }
+
+        repository.toggleInstallmentPaid(
+            userId = guestUserId,
+            commitment = created,
+            installmentNumber = 1L,
+            markAsPaid = true,
+            payFromAccount = null
+        )
+
+        val afterOnePayment = repository.observeCommitments(guestUserId).first().first { it.id == commId }
+        assertEquals(com.example.data.model.CommitmentStatus.ACTIVE.name, afterOnePayment.status)
+        assertEquals(1L, afterOnePayment.paidInstallments)
+        assertEquals(250.0, afterOnePayment.remainingAmount, 0.001)
+    }
+
+    @Test
+    fun corruptedPaidOffFixedExpense_isAutoHealedOnObserve() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repository = FinanceRepository(null, context)
+        val guestUserId = "local_guest"
+
+        val corrupted = ExpenseCommitment(
+            title = "Alquiler",
+            totalAmount = 200.0,
+            remainingAmount = 0.0,
+            installmentAmount = 200.0,
+            totalInstallments = 6L,
+            paidInstallments = 1L,
+            isFixedExpense = true,
+            status = com.example.data.model.CommitmentStatus.PAID_OFF.name,
+            paymentMode = PaymentMode.INSTALLMENTS.name
+        )
+        val commId = repository.createCommitment(guestUserId, corrupted)
+        repository.repairCorruptedFixedCommitments(guestUserId)
+
+        val healed = repository.observeCommitments(guestUserId).first().first { it.id == commId }
+        assertEquals(com.example.data.model.CommitmentStatus.ACTIVE.name, healed.status)
+        assertTrue(healed.remainingAmount > 0.0)
+    }
 }
+

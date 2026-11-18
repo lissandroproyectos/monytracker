@@ -63,6 +63,8 @@ object BackupManager {
             obj.put("colorHex", acc.colorHex)
             obj.put("iconName", acc.iconName)
             obj.put("isSavings", acc.isSavings)
+            obj.put("isSystemAccount", acc.isSystemAccount)
+            obj.put("isClosed", acc.isClosed)
             obj.put("hasPeriodicIncome", acc.hasPeriodicIncome)
             obj.put("periodicIncomeAmount", acc.periodicIncomeAmount)
             obj.put("periodicIncomeCurrency", acc.periodicIncomeCurrency)
@@ -90,10 +92,30 @@ object BackupManager {
             obj.put("totalInstallments", com.totalInstallments)
             obj.put("paidInstallments", com.paidInstallments)
             obj.put("installmentAmount", com.installmentAmount)
+            obj.put("downPayment", com.downPayment)
             obj.put("interestRate", com.interestRate)
             obj.put("isAnnualInterest", com.isAnnualInterest)
             obj.put("customDays", com.customDays)
+            obj.put("paymentDayOfMonth", com.paymentDayOfMonth)
+            obj.put("secondPaymentDay", com.secondPaymentDay)
+            obj.put("paymentDayOfWeek", com.paymentDayOfWeek)
+            obj.put("startDateSeconds", com.startDate.seconds)
+            obj.put("dueDateSeconds", com.dueDate.seconds)
+            com.endDate?.let { obj.put("endDateSeconds", it.seconds) }
+            com.accountId?.let { obj.put("accountId", it) }
             obj.put("notes", com.notes ?: "")
+
+            val instArr = JSONArray()
+            com.getProjectedInstallments().forEach { inst ->
+                val iObj = JSONObject()
+                iObj.put("number", inst.number)
+                iObj.put("dueDateSeconds", inst.dueDate.seconds)
+                iObj.put("amount", inst.amount)
+                iObj.put("isPaid", inst.isPaid)
+                inst.paidDate?.let { iObj.put("paidDateSeconds", it.seconds) }
+                instArr.put(iObj)
+            }
+            obj.put("installments", instArr)
             comArr.put(obj)
         }
         root.put("commitments", comArr)
@@ -158,6 +180,8 @@ object BackupManager {
                         colorHex = o.optString("colorHex", "#10B981"),
                         iconName = o.optString("iconName", "wallet"),
                         isSavings = o.optBoolean("isSavings", false),
+                        isSystemAccount = o.optBoolean("isSystemAccount", false),
+                        isClosed = o.optBoolean("isClosed", false),
                         hasPeriodicIncome = o.optBoolean("hasPeriodicIncome", false),
                         periodicIncomeAmount = o.optDouble("periodicIncomeAmount", 0.0),
                         periodicIncomeCurrency = o.optString("periodicIncomeCurrency", "USD_BCV"),
@@ -175,29 +199,58 @@ object BackupManager {
             val arr = root.getJSONArray("commitments")
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
-                commitments.add(
-                    ExpenseCommitment(
-                        id = o.optString("id", ""),
-                        userId = userId,
-                        title = o.optString("title", "Compromiso"),
-                        totalAmount = o.optDouble("totalAmount", 0.0),
-                        remainingAmount = o.optDouble("remainingAmount", 0.0),
-                        currency = o.optString("currency", "USD_BCV"),
-                        paymentMode = o.optString("paymentMode", PaymentMode.FULL.name),
-                        category = o.optString("category", "General"),
-                        isFixedExpense = o.optBoolean("isFixedExpense", false),
-                        status = o.optString("status", CommitmentStatus.ACTIVE.name),
-                        frequency = o.optString("frequency", Frequency.MONTHLY.name),
-                        totalInstallments = o.optLong("totalInstallments", 1L),
-                        paidInstallments = o.optLong("paidInstallments", 0L),
-                        installmentAmount = o.optDouble("installmentAmount", 0.0),
-                        interestRate = o.optDouble("interestRate", 0.0),
-                        isAnnualInterest = o.optBoolean("isAnnualInterest", false),
-                        customDays = o.optInt("customDays", 30),
-                        notes = o.optString("notes").ifBlank { null },
-                        createdAt = Timestamp.now()
-                    )
-                )
+                val parsedInstallments = mutableListOf<Map<String, Any?>>()
+                if (o.has("installments")) {
+                    val iArr = o.getJSONArray("installments")
+                    for (j in 0 until iArr.length()) {
+                        val io = iArr.getJSONObject(j)
+                        val p = ProjectedInstallment(
+                            number = io.optLong("number", (j + 1).toLong()),
+                            dueDate = Timestamp(io.optLong("dueDateSeconds", System.currentTimeMillis() / 1000L), 0),
+                            amount = io.optDouble("amount", 0.0),
+                            isPaid = io.optBoolean("isPaid", false),
+                            paidDate = if (io.has("paidDateSeconds")) Timestamp(io.optLong("paidDateSeconds"), 0) else null
+                        )
+                        parsedInstallments.add(p.toMap())
+                    }
+                }
+                val startSec = o.optLong("startDateSeconds", 0L)
+                val dueSec = o.optLong("dueDateSeconds", 0L)
+                val startTs = if (startSec > 0L) Timestamp(startSec, 0) else Timestamp.now()
+                val dueTs = if (dueSec > 0L) Timestamp(dueSec, 0) else startTs
+                val endTs = if (o.has("endDateSeconds")) Timestamp(o.optLong("endDateSeconds"), 0) else null
+
+                val parsedCom = ExpenseCommitment(
+                    id = o.optString("id", ""),
+                    userId = userId,
+                    title = o.optString("title", "Compromiso"),
+                    totalAmount = o.optDouble("totalAmount", 0.0),
+                    remainingAmount = o.optDouble("remainingAmount", 0.0),
+                    currency = o.optString("currency", "USD_BCV"),
+                    paymentMode = o.optString("paymentMode", PaymentMode.FULL.name),
+                    category = o.optString("category", "General"),
+                    isFixedExpense = o.optBoolean("isFixedExpense", false),
+                    status = o.optString("status", CommitmentStatus.ACTIVE.name),
+                    frequency = o.optString("frequency", Frequency.MONTHLY.name),
+                    totalInstallments = o.optLong("totalInstallments", 1L),
+                    paidInstallments = o.optLong("paidInstallments", 0L),
+                    installmentAmount = o.optDouble("installmentAmount", 0.0),
+                    downPayment = o.optDouble("downPayment", 0.0),
+                    interestRate = o.optDouble("interestRate", 0.0),
+                    isAnnualInterest = o.optBoolean("isAnnualInterest", false),
+                    customDays = o.optInt("customDays", 30),
+                    paymentDayOfMonth = o.optInt("paymentDayOfMonth", 0),
+                    secondPaymentDay = o.optInt("secondPaymentDay", 0),
+                    paymentDayOfWeek = o.optInt("paymentDayOfWeek", 0),
+                    startDate = startTs,
+                    dueDate = dueTs,
+                    endDate = endTs,
+                    accountId = o.optString("accountId").ifBlank { null },
+                    notes = o.optString("notes").ifBlank { null },
+                    installments = parsedInstallments,
+                    createdAt = Timestamp.now()
+                ).normalizedIfCorruptedFixed()
+                commitments.add(parsedCom)
             }
         }
 
