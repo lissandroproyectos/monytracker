@@ -77,6 +77,7 @@ fun AccountsScreen(
     val payCurr = health.paymentCurrency
 
     var showAddAccountDialog by remember { mutableStateOf(false) }
+    var addAccountDefaultIsSavings by remember { mutableStateOf(false) }
     var accountToEdit by remember { mutableStateOf<Account?>(null) }
     var accountToDelete by remember { mutableStateOf<Account?>(null) }
     var showTransferDialog by remember { mutableStateOf(false) }
@@ -85,13 +86,30 @@ fun AccountsScreen(
     var transactionToDelete by remember { mutableStateOf<Transaction?>(null) }
 
     val visibleAccounts = remember(accounts) { accounts.filter { !it.isClosed } }
+    val savingsAccounts = remember(visibleAccounts) {
+        visibleAccounts.filter { it.isSavings || it.type == AccountType.SAVINGS.name }
+    }
+    val incomeAndGeneralAccounts = remember(visibleAccounts) {
+        visibleAccounts
+            .filter { !it.isSavings && it.type != AccountType.SAVINGS.name }
+            .sortedWith(
+                compareByDescending<Account> { it.hasPeriodicIncome }
+                    .thenBy { it.isPlanStartAccount }
+            )
+    }
+
     val totalBalance = remember(visibleAccounts, rates, dispCurr) {
         visibleAccounts.sumOf { rates.convert(it.currentBalance, com.example.data.currency.AppCurrency.fromCode(it.currency), dispCurr) }
     }
     val totalBalancePay = remember(visibleAccounts, rates, payCurr) {
         visibleAccounts.sumOf { rates.convert(it.currentBalance, com.example.data.currency.AppCurrency.fromCode(it.currency), payCurr) }
     }
-    val savingsAccounts = visibleAccounts.filter { it.isSavings || it.type == AccountType.SAVINGS.name }
+    val generalPoolTotal = remember(incomeAndGeneralAccounts, rates, dispCurr) {
+        incomeAndGeneralAccounts.sumOf { rates.convert(it.currentBalance, com.example.data.currency.AppCurrency.fromCode(it.currency), dispCurr) }
+    }
+    val generalPoolTotalPay = remember(incomeAndGeneralAccounts, rates, payCurr) {
+        incomeAndGeneralAccounts.sumOf { rates.convert(it.currentBalance, com.example.data.currency.AppCurrency.fromCode(it.currency), payCurr) }
+    }
     val savingsTotal = remember(savingsAccounts, rates, dispCurr) {
         savingsAccounts.sumOf { rates.convert(it.currentBalance, com.example.data.currency.AppCurrency.fromCode(it.currency), dispCurr) }
     }
@@ -117,129 +135,136 @@ fun AccountsScreen(
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = SlateCard)
             ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Text(
-                        text = "Patrimonio en Cuentas (${dispCurr.code})",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondaryDark
-                    )
-                    Text(
-                        text = formatCurrency(totalBalance, dispCurr.symbol),
-                        style = MaterialTheme.typography.displayMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = EmeraldLight
-                    )
-                    if (payCurr != dispCurr) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column {
                         Text(
-                            text = "Equiv. pago (${payCurr.code}): ${formatCurrency(totalBalancePay, payCurr.symbol)}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = TextSecondaryDark,
-                            fontWeight = FontWeight.SemiBold
+                            text = "Patrimonio Total en Cuentas (${dispCurr.code})",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondaryDark
                         )
+                        Text(
+                            text = formatCurrency(totalBalance, dispCurr.symbol),
+                            style = MaterialTheme.typography.displayMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = EmeraldLight
+                        )
+                        if (payCurr != dispCurr) {
+                            Text(
+                                text = "Equiv. pago (${payCurr.code}): ${formatCurrency(totalBalancePay, payCurr.symbol)}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = TextSecondaryDark,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
-                    Spacer(modifier = Modifier.height(14.dp))
 
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    // Dual Summary Pills: Cuenta General vs Ahorros
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            color = SlateBackground
                         ) {
-                            Button(
-                                onClick = { selectedTxAccountAndType = Pair(TransactionType.INCOME.name, null) },
-                                modifier = Modifier.weight(1f).testTag("add_extra_income_btn"),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
-                            ) {
-                                Text("+ Ingreso Extra", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
-
-                            Button(
-                                onClick = { selectedTxAccountAndType = Pair(TransactionType.EXPENSE.name, null) },
-                                modifier = Modifier.weight(1f).testTag("add_extra_expense_btn"),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = com.example.ui.theme.AccentRed)
-                            ) {
-                                Text("- Egreso Extra", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text("Cuenta General", style = MaterialTheme.typography.labelSmall, color = TextSecondaryDark, fontSize = 10.sp)
+                                Text(
+                                    text = formatCurrency(generalPoolTotal, dispCurr.symbol),
+                                    fontWeight = FontWeight.Bold,
+                                    color = EmeraldLight,
+                                    fontSize = 14.sp
+                                )
+                                if (payCurr != dispCurr) {
+                                    Text(
+                                        text = "Pago: ${formatCurrency(generalPoolTotalPay, payCurr.symbol)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = TextSecondaryDark,
+                                        fontSize = 9.sp
+                                    )
+                                }
                             }
                         }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            color = EmeraldDark.copy(alpha = 0.2f)
                         ) {
-                            OutlinedButton(
-                                onClick = { showAddAccountDialog = true },
-                                modifier = Modifier.weight(1f).testTag("add_account_btn"),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Nueva Cuenta", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                            }
-
-                            if (visibleAccounts.size >= 2) {
-                                OutlinedButton(
-                                    onClick = { showTransferDialog = true },
-                                    modifier = Modifier.weight(1f).testTag("transfer_btn"),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Transferir", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text("Total en Ahorros", style = MaterialTheme.typography.labelSmall, color = TextSecondaryDark, fontSize = 10.sp)
+                                Text(
+                                    text = formatCurrency(savingsTotal, dispCurr.symbol),
+                                    fontWeight = FontWeight.Bold,
+                                    color = EmeraldLight,
+                                    fontSize = 14.sp
+                                )
+                                if (payCurr != dispCurr) {
+                                    Text(
+                                        text = "Pago: ${formatCurrency(savingsTotalPay, payCurr.symbol)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = TextSecondaryDark,
+                                        fontSize = 9.sp
+                                    )
                                 }
                             }
                         }
                     }
-                }
-            }
-        }
 
-        if (savingsAccounts.isNotEmpty()) {
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = EmeraldDark.copy(alpha = 0.15f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Savings, contentDescription = null, tint = EmeraldLight)
-                            Spacer(Modifier.width(10.dp))
-                            Column {
-                                Text("Ahorros y Colchón (${savingsAccounts.size})", fontWeight = FontWeight.Bold, color = TextPrimaryDark, fontSize = 14.sp)
-                                Text("Cuentas destinadas a reserva", style = MaterialTheme.typography.bodySmall, color = TextSecondaryDark, fontSize = 11.sp)
-                            }
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(formatCurrency(savingsTotal, dispCurr.symbol), fontWeight = FontWeight.Bold, color = EmeraldLight, fontSize = 16.sp)
-                            if (payCurr != dispCurr) {
-                                Text(
-                                    text = "Pago: ${formatCurrency(savingsTotalPay, payCurr.symbol)}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = TextSecondaryDark,
-                                    fontSize = 10.sp
-                                )
-                            }
+                    if (visibleAccounts.size >= 2) {
+                        OutlinedButton(
+                            onClick = { showTransferDialog = true },
+                            modifier = Modifier.fillMaxWidth().testTag("transfer_btn"),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Transferir entre Cuentas", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                         }
                     }
                 }
             }
         }
 
+        // SECTION 1: CUENTAS DE INGRESOS Y CUENTA GENERAL
         item {
-            Text(
-                text = "Todas las Cuentas (${visibleAccounts.size})",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimaryDark
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Cuentas de Ingresos (${incomeAndGeneralAccounts.size})",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimaryDark
+                    )
+                    Text(
+                        text = "Cuenta General disponible: ${formatCurrency(generalPoolTotal, dispCurr.symbol)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = EmeraldLight,
+                        fontSize = 11.sp
+                    )
+                }
+                OutlinedButton(
+                    onClick = {
+                        addAccountDefaultIsSavings = false
+                        showAddAccountDialog = true
+                    },
+                    modifier = Modifier.testTag("add_account_btn"),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Nueva Cuenta", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                }
+            }
         }
 
-        if (visibleAccounts.isEmpty()) {
+        if (incomeAndGeneralAccounts.isEmpty()) {
             item {
                 Surface(
                     color = SlateCard.copy(alpha = 0.5f),
@@ -247,27 +272,30 @@ fun AccountsScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        modifier = Modifier.padding(32.dp),
+                        modifier = Modifier.padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "No tienes cuentas registradas aún",
-                            style = MaterialTheme.typography.titleMedium,
+                            text = "No tienes cuentas de ingresos ni operación registradas aún",
+                            style = MaterialTheme.typography.bodyMedium,
                             color = TextSecondaryDark
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         Button(
-                            onClick = { showAddAccountDialog = true },
+                            onClick = {
+                                addAccountDefaultIsSavings = false
+                                showAddAccountDialog = true
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Agregar mi primera cuenta")
+                            Text("Agregar Cuenta de Ingreso")
                         }
                     }
                 }
             }
         } else {
-            items(visibleAccounts, key = { it.id }) { acc ->
+            items(incomeAndGeneralAccounts, key = { it.id }) { acc ->
                 AccountItemCard(
                     account = acc,
                     onEdit = { accountToEdit = acc },
@@ -285,33 +313,152 @@ fun AccountsScreen(
             }
         }
 
-        // Recent Extra Movements Section
+        // SECTION 2: CUENTAS DE AHORROS (Digital, Bancaria, Efectivo Ahorro)
         item {
+            Spacer(modifier = Modifier.height(4.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Savings, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "Cuentas de Ahorros (${savingsAccounts.size})",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimaryDark
+                        )
+                    }
                     Text(
-                        text = "Ingresos / Egresos Extra (${extraTransactions.size})",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimaryDark
-                    )
-                    Text(
-                        text = "Toca un movimiento para ver, editar o eliminar",
+                        text = "Digital, Bancaria o Efectivo • Total: ${formatCurrency(savingsTotal, dispCurr.symbol)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondaryDark,
                         fontSize = 11.sp
                     )
                 }
-                if (onNavigateToTransactions != null) {
-                    TextButton(
-                        onClick = onNavigateToTransactions,
-                        modifier = Modifier.testTag("accounts_view_all_tx_btn")
+                Button(
+                    onClick = {
+                        addAccountDefaultIsSavings = true
+                        showAddAccountDialog = true
+                    },
+                    modifier = Modifier.testTag("add_savings_account_btn"),
+                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldDark),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp), tint = EmeraldLight)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("De Ahorro", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = EmeraldLight)
+                }
+            }
+        }
+
+        if (savingsAccounts.isEmpty()) {
+            item {
+                Surface(
+                    color = EmeraldDark.copy(alpha = 0.14f),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(22.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text("Ver Historial", color = EmeraldLight, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "Aún no tienes cuentas de ahorro configuradas",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondaryDark
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = {
+                                addAccountDefaultIsSavings = true
+                                showAddAccountDialog = true
+                            },
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.Savings, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Crear Cuenta de Ahorro (Digital / Banco / Efectivo)", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        } else {
+            items(savingsAccounts, key = { it.id }) { acc ->
+                AccountItemCard(
+                    account = acc,
+                    onEdit = { accountToEdit = acc },
+                    onDelete = { accountToDelete = acc },
+                    onAddIncome = {
+                        selectedTxAccountAndType = Pair(TransactionType.INCOME.name, acc.id)
+                    },
+                    onAddExpense = {
+                        selectedTxAccountAndType = Pair(TransactionType.EXPENSE.name, acc.id)
+                    },
+                    displayCurrency = dispCurr,
+                    paymentCurrency = payCurr,
+                    rates = rates
+                )
+            }
+        }
+
+        // SECTION 3: INGRESOS Y EGRESOS EXTRA
+        item {
+            Spacer(modifier = Modifier.height(4.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Ingresos y Egresos Extra (${extraTransactions.size})",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimaryDark
+                        )
+                        Text(
+                            text = "Toca un movimiento para ver, editar o eliminar",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondaryDark,
+                            fontSize = 11.sp
+                        )
+                    }
+                    if (onNavigateToTransactions != null) {
+                        TextButton(
+                            onClick = onNavigateToTransactions,
+                            modifier = Modifier.testTag("accounts_view_all_tx_btn")
+                        ) {
+                            Text("Ver Historial", color = EmeraldLight, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { selectedTxAccountAndType = Pair(TransactionType.INCOME.name, null) },
+                        modifier = Modifier.weight(1f).testTag("add_extra_income_btn"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                    ) {
+                        Text("+ Ingreso Extra", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+
+                    Button(
+                        onClick = { selectedTxAccountAndType = Pair(TransactionType.EXPENSE.name, null) },
+                        modifier = Modifier.weight(1f).testTag("add_extra_expense_btn"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
+                    ) {
+                        Text("- Egreso Extra", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 }
             }
@@ -333,7 +480,7 @@ fun AccountsScreen(
                 }
             }
         } else {
-            items(extraTransactions.take(6), key = { it.id }) { tx ->
+            items(extraTransactions.take(8), key = { it.id }) { tx ->
                 val accName = accounts.find { it.id == tx.accountId }?.name
                     ?: if (tx.accountId == "EXTERNAL") "Dinero Externo" else "Cuenta"
                 TransactionRow(
@@ -341,7 +488,10 @@ fun AccountsScreen(
                     accountName = accName,
                     onClick = { transactionToEdit = tx },
                     onEdit = { transactionToEdit = tx },
-                    onDelete = { transactionToDelete = tx }
+                    onDelete = { transactionToDelete = tx },
+                    displayCurrency = dispCurr,
+                    paymentCurrency = payCurr,
+                    rates = rates
                 )
             }
         }
@@ -353,6 +503,7 @@ fun AccountsScreen(
 
     if (showAddAccountDialog) {
         AddAccountDialog(
+            initialIsSavings = addAccountDefaultIsSavings,
             onDismiss = { showAddAccountDialog = false },
             onSave = { newAccount -> viewModel.addAccount(newAccount) }
         )

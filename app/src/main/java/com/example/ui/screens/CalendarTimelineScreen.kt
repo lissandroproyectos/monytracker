@@ -81,6 +81,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.currency.AppCurrency
 import com.example.data.currency.ExchangeRates
 import com.example.data.model.Account
+import com.example.data.model.AccountType
 import com.example.data.model.CommitmentStatus
 import com.example.data.model.ExpenseCommitment
 import com.example.data.model.Frequency
@@ -90,6 +91,7 @@ import com.example.ui.FinanceViewModel
 import com.example.ui.components.AddTransactionDialog
 import com.example.ui.components.ConfirmPaymentDialog
 import com.example.ui.components.EventDetailDialog
+import com.example.ui.components.TransferFromSavingsDialog
 import com.example.ui.components.TransferSurplusDialog
 import com.example.ui.components.formatCurrency
 import com.example.ui.components.formatDate
@@ -127,7 +129,10 @@ data class PlannedEvent(
     val sweepExcessAmount: Double = 0.0,
     val transactionId: String? = null,
     val surplusBeforeIncome: Double? = null,
-    val runningAvailableBefore: Double? = null
+    val runningAvailableBefore: Double? = null,
+    val isSavingsDraw: Boolean = false,
+    val coveredExpenseTitles: List<String> = emptyList(),
+    val savingsBalanceAfter: Double? = null
 )
 
 @Composable
@@ -150,9 +155,16 @@ fun CalendarTimelineScreen(
     var showCushionDialog by remember { mutableStateOf(false) }
     var cushionInput by remember { mutableStateOf("") }
 
-    // Total initial available money in liquid operational accounts
+    // Total initial available money in liquid operational accounts (Cuenta General)
     val totalAvailableNow = remember(accounts, rates, health.displayCurrency) {
-        accounts.filter { !it.isSavings && !it.isClosed }.sumOf { acc ->
+        accounts.filter { !it.isSavings && it.type != AccountType.SAVINGS.name && !it.isClosed }.sumOf { acc ->
+            rates.convert(acc.currentBalance, AppCurrency.fromCode(acc.currency), health.displayCurrency)
+        }
+    }
+
+    // Total live savings available across Digital / Bank / Cash savings accounts
+    val totalSavingsNow = remember(accounts, rates, health.displayCurrency) {
+        accounts.filter { (it.isSavings || it.type == AccountType.SAVINGS.name) && !it.isClosed }.sumOf { acc ->
             rates.convert(acc.currentBalance, AppCurrency.fromCode(acc.currency), health.displayCurrency)
         }
     }
@@ -215,7 +227,8 @@ fun CalendarTimelineScreen(
                 displayCurrency = health.displayCurrency,
                 paymentCurrency = health.paymentCurrency,
                 cushionAmount = settings.safetyCushionAmount,
-                initialAvailable = totalAvailableNow
+                initialAvailable = totalAvailableNow,
+                initialSavingsAvailable = totalSavingsNow
             )
         } else {
             // VIEW 2: PLAN DE PAGOS & PROYECCIÓN DE FLUJO DE CAJA
@@ -228,6 +241,7 @@ fun CalendarTimelineScreen(
                 displayCurrency = health.displayCurrency,
                 paymentCurrency = health.paymentCurrency,
                 initialAvailable = totalAvailableNow,
+                initialSavingsAvailable = totalSavingsNow,
                 cushionAmount = settings.safetyCushionAmount,
                 onEditCushion = {
                     cushionInput = settings.safetyCushionAmount.toString()
@@ -306,7 +320,8 @@ fun MonthlyCalendarView(
     displayCurrency: AppCurrency,
     paymentCurrency: AppCurrency = displayCurrency,
     cushionAmount: Double = 0.0,
-    initialAvailable: Double = 0.0
+    initialAvailable: Double = 0.0,
+    initialSavingsAvailable: Double = 0.0
 ) {
     var calendarMonth by remember {
         mutableStateOf(
@@ -327,6 +342,8 @@ fun MonthlyCalendarView(
     var eventToEditPayment by remember { mutableStateOf<PlannedEvent?>(null) }
     var showTransferSurplusDialog by remember { mutableStateOf(false) }
     var surplusAmountToTransfer by remember { mutableStateOf(0.0) }
+    var activeSweepEvent by remember { mutableStateOf<PlannedEvent?>(null) }
+    var activeSavingsDrawEvent by remember { mutableStateOf<PlannedEvent?>(null) }
 
     val monthStart = remember(calendarMonth) {
         (calendarMonth.clone() as Calendar).apply {
@@ -351,7 +368,7 @@ fun MonthlyCalendarView(
         monthFormat.format(calendarMonth.time).replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
     }
 
-    var showSavingsSweepInCalendar by remember { mutableStateOf(false) }
+    var showSavingsSweepInCalendar by remember { mutableStateOf(true) }
 
     val todayStart = remember {
         Calendar.getInstance().apply {
@@ -362,8 +379,15 @@ fun MonthlyCalendarView(
         }.time
     }
 
-    // Compute starting pot for this month: if viewing a future month, carry forward pending events between today and monthStart
-    val monthStartingPot = remember(commitments, transactions, accounts, initialAvailable, monthStart, todayStart, rates, displayCurrency) {
+    val planTransferTxs = remember(transactions) {
+        transactions.filter { it.type == TransactionType.TRANSFER.name && !it.commitmentId.isNullOrBlank() }
+    }
+
+    // Compute starting pool & savings for this month: carry forward pending events if viewing a future month
+    val bridgeSimulation = remember(
+        commitments, transactions, accounts, initialAvailable, initialSavingsAvailable,
+        monthStart, todayStart, showSavingsSweepInCalendar, cushionAmount, rates, displayCurrency, planTransferTxs
+    ) {
         if (monthStart.after(todayStart)) {
             val beforeMonthEnd = Date(monthStart.time - 1L)
             val bridgeEvents = generatePlannedEvents(
@@ -377,15 +401,19 @@ fun MonthlyCalendarView(
                 rawEvents = bridgeEvents,
                 startingPool = initialAvailable,
                 cushionAmount = cushionAmount,
-                enableSavingsSweep = false,
+                enableSavingsSweep = showSavingsSweepInCalendar,
                 endDateForFinalSweep = null,
                 displayCurrency = displayCurrency,
-                rates = rates
-            ).endingPool
+                rates = rates,
+                initialSavingsAvailable = initialSavingsAvailable,
+                completedPlanTransfers = planTransferTxs
+            )
         } else {
-            initialAvailable
+            null
         }
     }
+    val monthStartingPot = bridgeSimulation?.endingPool ?: initialAvailable
+    val monthStartingSavings = bridgeSimulation?.endingSavings ?: initialSavingsAvailable
 
     // Compute all planned raw events for this month
     val monthEvents = remember(commitments, transactions, accounts, monthStart, monthEnd) {
@@ -398,8 +426,11 @@ fun MonthlyCalendarView(
         )
     }
 
-    // Perform step-by-step simulation for this month starting from the general available pot
-    val monthSimulation = remember(monthEvents, monthStartingPot, cushionAmount, showSavingsSweepInCalendar, rates, displayCurrency) {
+    // Perform step-by-step simulation for this month starting from the general available account
+    val monthSimulation = remember(
+        monthEvents, monthStartingPot, monthStartingSavings, cushionAmount,
+        showSavingsSweepInCalendar, rates, displayCurrency, planTransferTxs
+    ) {
         simulateGeneralPool(
             rawEvents = monthEvents,
             startingPool = monthStartingPot,
@@ -407,7 +438,9 @@ fun MonthlyCalendarView(
             enableSavingsSweep = showSavingsSweepInCalendar,
             endDateForFinalSweep = null,
             displayCurrency = displayCurrency,
-            rates = rates
+            rates = rates,
+            initialSavingsAvailable = monthStartingSavings,
+            completedPlanTransfers = planTransferTxs
         )
     }
     val simulatedMonthEvents = monthSimulation.events
@@ -446,11 +479,11 @@ fun MonthlyCalendarView(
     val totalExpensesMonth = monthSimulation.totalPeriodExpenses
     val monthNetBalance = totalIncomeMonth - totalExpensesMonth
     val firstDeficitEvent = monthSimulation.firstDeficitEvent
-    val hasDeficitMonth = monthSimulation.hasDeficit || totalExpensesMonth > (monthStartingPot + totalIncomeMonth)
+    val hasDeficitMonth = monthSimulation.hasDeficit || monthSimulation.insufficientSavingsAlerts.isNotEmpty()
 
-    val allLiquidAccounts = remember(accounts) { accounts.filter { !it.isSavings && !it.isClosed } }
-    val operatingAccounts = remember(accounts) { accounts.filter { !it.isSavings && !it.isPlanStartAccount && !it.isClosed } }
-    val savingsAccounts = remember(accounts) { accounts.filter { it.isSavings && !it.isClosed } }
+    val allLiquidAccounts = remember(accounts) { accounts.filter { !it.isSavings && it.type != AccountType.SAVINGS.name && !it.isClosed } }
+    val operatingAccounts = remember(accounts) { accounts.filter { !it.isSavings && it.type != AccountType.SAVINGS.name && !it.isPlanStartAccount && !it.isClosed } }
+    val savingsAccounts = remember(accounts) { accounts.filter { (it.isSavings || it.type == AccountType.SAVINGS.name) && !it.isClosed } }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -523,7 +556,7 @@ fun MonthlyCalendarView(
             }
         }
 
-        // General Pool Summary Card (Pote General Disponible)
+        // General Pool Summary Card (Cuenta General Disponible)
         item {
             GeneralPoolSummaryCard(
                 liquidAccounts = allLiquidAccounts,
@@ -535,7 +568,7 @@ fun MonthlyCalendarView(
                 displayCurrency = displayCurrency,
                 paymentCurrency = paymentCurrency,
                 rates = rates,
-                periodLabel = if (monthStart.after(todayStart)) "Inicio proyectado en $monthTitle" else "Pote hoy (${allLiquidAccounts.size} cuentas)",
+                periodLabel = if (monthStart.after(todayStart)) "Inicio proyectado en $monthTitle" else "Cuenta general hoy (${allLiquidAccounts.size} cuentas)",
                 showSavingsSweepToggle = true,
                 enableSavingsSweep = showSavingsSweepInCalendar,
                 onToggleSavingsSweep = { showSavingsSweepInCalendar = it }
@@ -620,10 +653,10 @@ fun MonthlyCalendarView(
         // Financial Deficit Warning Alert Banner (All days & expenses where balance < 0)
         if (hasDeficitMonth) {
             item {
-                val faltaTotal = kotlin.math.abs(monthSimulation.minPoolBalance)
-                val fallbackMsg = "Los egresos previstos (-${formatCurrency(totalExpensesMonth, displayCurrency.symbol)}) superan tu pote e ingresos (+${formatCurrency(monthStartingPot + totalIncomeMonth, displayCurrency.symbol)})."
+                val fallbackMsg = "Los egresos previstos (-${formatCurrency(totalExpensesMonth, displayCurrency.symbol)}) superan tu cuenta general e ingresos (+${formatCurrency(monthStartingPot + totalIncomeMonth, displayCurrency.symbol)})."
                 DeficitDaysSummaryBanner(
                     deficitDays = monthSimulation.deficitDays,
+                    insufficientSavingsAlerts = monthSimulation.insufficientSavingsAlerts,
                     minPoolBalance = monthSimulation.minPoolBalance,
                     displayCurrency = displayCurrency,
                     paymentCurrency = paymentCurrency,
@@ -733,35 +766,60 @@ fun MonthlyCalendarView(
             }
         } else {
             items(displayedEvents, key = { it.id }) { event ->
-                if (event.isSavingsSweep) {
-                    SavingsSweepCard(
-                        event = event,
-                        cushionAmount = cushionAmount,
-                        displayCurrency = displayCurrency,
-                        onApplySweep = {
-                            surplusAmountToTransfer = event.amount
-                            showTransferSurplusDialog = true
-                        }
-                    )
-                } else {
-                    PlannedEventItemCard(
-                        event = event,
-                        displayCurrency = displayCurrency,
-                        paymentCurrency = paymentCurrency,
-                        rates = rates,
-                        showBalanceAfter = true,
-                        cushionAmount = cushionAmount,
-                        onCardClick = {
-                            selectedEventForDetail = event
-                        },
-                        onToggleReady = {
-                            if (event.isPaid) {
-                                toggleEventReady(viewModel, event, accounts)
-                            } else {
-                                pendingPaymentEvent = event
+                when {
+                    event.isSavingsSweep -> {
+                        SavingsSweepCard(
+                            event = event,
+                            cushionAmount = cushionAmount,
+                            displayCurrency = displayCurrency,
+                            paymentCurrency = paymentCurrency,
+                            rates = rates,
+                            onApplySweep = {
+                                if (event.isPaid) {
+                                    toggleEventReady(viewModel, event, accounts)
+                                } else {
+                                    activeSweepEvent = event
+                                    surplusAmountToTransfer = event.amount
+                                    showTransferSurplusDialog = true
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
+                    event.isSavingsDraw -> {
+                        SavingsDrawCard(
+                            event = event,
+                            displayCurrency = displayCurrency,
+                            paymentCurrency = paymentCurrency,
+                            rates = rates,
+                            onApplyDraw = {
+                                if (event.isPaid) {
+                                    toggleEventReady(viewModel, event, accounts)
+                                } else {
+                                    activeSavingsDrawEvent = event
+                                }
+                            }
+                        )
+                    }
+                    else -> {
+                        PlannedEventItemCard(
+                            event = event,
+                            displayCurrency = displayCurrency,
+                            paymentCurrency = paymentCurrency,
+                            rates = rates,
+                            showBalanceAfter = true,
+                            cushionAmount = cushionAmount,
+                            onCardClick = {
+                                selectedEventForDetail = event
+                            },
+                            onToggleReady = {
+                                if (event.isPaid) {
+                                    toggleEventReady(viewModel, event, accounts)
+                                } else {
+                                    pendingPaymentEvent = event
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -930,10 +988,47 @@ fun MonthlyCalendarView(
             operatingAccounts = operatingAccounts,
             savingsAccounts = savingsAccounts,
             rates = rates,
-            onDismiss = { showTransferSurplusDialog = false },
-            onConfirm = { fromAcc, toAcc, amount, notes ->
-                viewModel.transferSavings(fromAcc, toAcc, amount, notes, amountCurrency = displayCurrency)
+            onDismiss = {
                 showTransferSurplusDialog = false
+                activeSweepEvent = null
+            },
+            onConfirm = { fromAcc, toAcc, amount, notes ->
+                viewModel.transferSavings(
+                    fromAccount = fromAcc,
+                    toAccount = toAcc,
+                    amount = amount,
+                    notes = notes,
+                    amountCurrency = displayCurrency,
+                    plannedEventId = activeSweepEvent?.id,
+                    date = activeSweepEvent?.dueDate
+                )
+                showTransferSurplusDialog = false
+                activeSweepEvent = null
+            }
+        )
+    }
+
+    activeSavingsDrawEvent?.let { drawEvent ->
+        TransferFromSavingsDialog(
+            suggestedAmount = drawEvent.amount,
+            coveredExpenseTitles = drawEvent.coveredExpenseTitles,
+            displayCurrency = displayCurrency,
+            paymentCurrency = paymentCurrency,
+            savingsAccounts = savingsAccounts,
+            operatingAccounts = allLiquidAccounts,
+            rates = rates,
+            onDismiss = { activeSavingsDrawEvent = null },
+            onConfirm = { fromSavingsAcc, toOperatingAcc, amount, notes ->
+                viewModel.transferSavings(
+                    fromAccount = fromSavingsAcc,
+                    toAccount = toOperatingAcc,
+                    amount = amount,
+                    notes = notes,
+                    amountCurrency = displayCurrency,
+                    plannedEventId = drawEvent.id,
+                    date = drawEvent.dueDate
+                )
+                activeSavingsDrawEvent = null
             }
         )
     }
@@ -1069,6 +1164,7 @@ fun PaymentPlanProjectionView(
     displayCurrency: AppCurrency,
     paymentCurrency: AppCurrency = displayCurrency,
     initialAvailable: Double,
+    initialSavingsAvailable: Double = 0.0,
     cushionAmount: Double,
     onEditCushion: () -> Unit
 ) {
@@ -1105,6 +1201,8 @@ fun PaymentPlanProjectionView(
     var eventToEditPayment by remember { mutableStateOf<PlannedEvent?>(null) }
     var showTransferSurplusDialog by remember { mutableStateOf(false) }
     var surplusAmountToTransfer by remember { mutableStateOf(0.0) }
+    var activeSweepEvent by remember { mutableStateOf<PlannedEvent?>(null) }
+    var activeSavingsDrawEvent by remember { mutableStateOf<PlannedEvent?>(null) }
 
     fun showPicker(current: Date, onSelected: (Date) -> Unit) {
         val cal = Calendar.getInstance().apply { time = current }
@@ -1128,6 +1226,25 @@ fun PaymentPlanProjectionView(
         ).show()
     }
 
+    val planTransferTxs = remember(transactions) {
+        transactions.filter { it.type == TransactionType.TRANSFER.name && !it.commitmentId.isNullOrBlank() }
+    }
+
+    val allLiquidAccounts = remember(accounts) { accounts.filter { !it.isSavings && it.type != AccountType.SAVINGS.name && !it.isClosed } }
+    val operatingAccounts = remember(accounts) { accounts.filter { !it.isSavings && it.type != AccountType.SAVINGS.name && !it.isPlanStartAccount && !it.isClosed } }
+    val savingsAccounts = remember(accounts) { accounts.filter { (it.isSavings || it.type == AccountType.SAVINGS.name) && !it.isClosed } }
+
+    val currentSavingsTotal = remember(savingsAccounts, rates, displayCurrency, initialSavingsAvailable) {
+        if (savingsAccounts.isNotEmpty()) {
+            val total = savingsAccounts.sumOf { acc ->
+                rates.convert(acc.currentBalance, AppCurrency.fromCode(acc.currency), displayCurrency)
+            }
+            kotlin.math.round(total * 100.0) / 100.0
+        } else {
+            kotlin.math.round(initialSavingsAvailable * 100.0) / 100.0
+        }
+    }
+
     // 1. Gather raw events within [startDate, endDate]
     val rawEvents = remember(commitments, transactions, accounts, startDate, endDate) {
         generatePlannedEvents(
@@ -1139,8 +1256,11 @@ fun PaymentPlanProjectionView(
         )
     }
 
-    // 2. Perform step-by-step cash flow simulation on the general pot with cushion check & excess savings sweep
-    val timelineSimulation = remember(rawEvents, initialAvailable, cushionAmount, enableSavingsSweep, endDate, rates, displayCurrency) {
+    // 2. Perform step-by-step cash flow simulation on Cuenta General with cushion check & savings coverage
+    val timelineSimulation = remember(
+        rawEvents, initialAvailable, currentSavingsTotal, cushionAmount,
+        enableSavingsSweep, endDate, rates, displayCurrency, planTransferTxs
+    ) {
         simulateGeneralPool(
             rawEvents = rawEvents,
             startingPool = initialAvailable,
@@ -1148,31 +1268,25 @@ fun PaymentPlanProjectionView(
             enableSavingsSweep = enableSavingsSweep,
             endDateForFinalSweep = endDate,
             displayCurrency = displayCurrency,
-            rates = rates
+            rates = rates,
+            initialSavingsAvailable = currentSavingsTotal,
+            completedPlanTransfers = planTransferTxs
         )
     }
     val simulatedTimeline = timelineSimulation.events
     val finalAvailableBalance = timelineSimulation.endingPool
 
-    val allLiquidAccounts = remember(accounts) { accounts.filter { !it.isSavings && !it.isClosed } }
-    val operatingAccounts = remember(accounts) { accounts.filter { !it.isSavings && !it.isPlanStartAccount && !it.isClosed } }
-    val savingsAccounts = remember(accounts) { accounts.filter { it.isSavings && !it.isClosed } }
-
-    val currentSavingsTotal = remember(savingsAccounts, rates, displayCurrency) {
-        val total = savingsAccounts.sumOf { acc ->
-            rates.convert(acc.currentBalance, AppCurrency.fromCode(acc.currency), displayCurrency)
-        }
-        kotlin.math.round(total * 100.0) / 100.0
-    }
-
     val totalProjectedSavingsSweeps = remember(simulatedTimeline) {
-        val sum = simulatedTimeline.filter { it.isSavingsSweep }.sumOf { it.amount }
+        val sum = simulatedTimeline.filter { it.isSavingsSweep && !it.isPaid }.sumOf { it.amount }
         kotlin.math.round(sum * 100.0) / 100.0
     }
 
-    val estimatedTotalSavingsAtEndOfPlan = remember(currentSavingsTotal, totalProjectedSavingsSweeps) {
-        kotlin.math.round((currentSavingsTotal + totalProjectedSavingsSweeps) * 100.0) / 100.0
+    val totalProjectedSavingsDraws = remember(simulatedTimeline) {
+        val sum = simulatedTimeline.filter { it.isSavingsDraw && !it.isPaid }.sumOf { it.amount }
+        kotlin.math.round(sum * 100.0) / 100.0
     }
+
+    val estimatedTotalSavingsAtEndOfPlan = timelineSimulation.endingSavings
 
     val immediateSurplusToday = remember(initialAvailable, cushionAmount) {
         kotlin.math.round((initialAvailable - cushionAmount).coerceAtLeast(0.0) * 100.0) / 100.0
@@ -1407,7 +1521,7 @@ fun PaymentPlanProjectionView(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Pote General Disponible (${allLiquidAccounts.size} cuentas)",
+                                text = "Cuenta General Disponible (${allLiquidAccounts.size} cuentas)",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = TextSecondaryDark
                             )
@@ -1560,7 +1674,7 @@ fun PaymentPlanProjectionView(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column {
-                            Text("Pote Final Proyectado", style = MaterialTheme.typography.labelSmall, color = TextSecondaryDark, fontSize = 10.sp)
+                            Text("Cuenta General Final", style = MaterialTheme.typography.labelSmall, color = TextSecondaryDark, fontSize = 10.sp)
                             Text(
                                 text = formatCurrency(finalAvailableBalance, displayCurrency.symbol),
                                 fontWeight = FontWeight.Bold,
@@ -1617,16 +1731,17 @@ fun PaymentPlanProjectionView(
                     }
 
                     // Full Deficit Summary: exact days and expenses where balance drops below 0
-                    if (timelineSimulation.deficitDays.isNotEmpty() || timelineSimulation.minPoolBalance < -0.001) {
+                    if (timelineSimulation.deficitDays.isNotEmpty() || timelineSimulation.insufficientSavingsAlerts.isNotEmpty() || timelineSimulation.minPoolBalance < -0.001) {
                         DeficitDaysSummaryBanner(
                             deficitDays = timelineSimulation.deficitDays,
+                            insufficientSavingsAlerts = timelineSimulation.insufficientSavingsAlerts,
                             minPoolBalance = timelineSimulation.minPoolBalance,
                             displayCurrency = displayCurrency,
                             paymentCurrency = paymentCurrency,
                             rates = rates,
-                            fallbackTitle = "🚨 El saldo del pote está por debajo de 0",
+                            fallbackTitle = "🚨 El saldo de la cuenta general está por debajo de 0",
                             fallbackMessage = if (timelineSimulation.deficitDays.isEmpty()) {
-                                "Tu pote disponible actual es ${formatCurrency(timelineSimulation.minPoolBalance, displayCurrency.symbol)}."
+                                "Tu cuenta general disponible actual es ${formatCurrency(timelineSimulation.minPoolBalance, displayCurrency.symbol)}."
                             } else null,
                             testTag = "timeline_deficit_alert_banner",
                             onEventClick = { ev -> selectedEventForDetail = ev }
@@ -1743,14 +1858,18 @@ fun PaymentPlanProjectionView(
                             }
                         }
 
-                        // 2. Projected Sweeps
+                        // 2. Projected Sweeps / Draws
                         Surface(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
                             color = Color(0xFF0F172A).copy(alpha = 0.6f)
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
-                                Text("Nuevos Ahorros", fontSize = 9.sp, color = Color(0xFFA78BFA))
+                                Text(
+                                    text = if (totalProjectedSavingsDraws > 0) "Ahorro / Uso" else "Nuevos Ahorros",
+                                    fontSize = 9.sp,
+                                    color = Color(0xFFA78BFA)
+                                )
                                 Spacer(Modifier.height(2.dp))
                                 Text(
                                     text = "+${formatCurrency(totalProjectedSavingsSweeps, displayCurrency.symbol)}",
@@ -1758,17 +1877,25 @@ fun PaymentPlanProjectionView(
                                     fontSize = 12.sp,
                                     color = Color(0xFFA78BFA)
                                 )
+                                if (totalProjectedSavingsDraws > 0) {
+                                    Text(
+                                        text = "-${formatCurrency(totalProjectedSavingsDraws, displayCurrency.symbol)} cubiertos",
+                                        fontSize = 9.sp,
+                                        color = AccentAmber,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                             }
                         }
 
-                        // 3. Maintained Operating Accounts
+                        // 3. Maintained Operating Accounts (Cuenta General)
                         Surface(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
                             color = Color(0xFF0F172A).copy(alpha = 0.6f)
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
-                                Text("Cuentas al Final", fontSize = 9.sp, color = EmeraldLight)
+                                Text("Cuenta General", fontSize = 9.sp, color = EmeraldLight)
                                 Spacer(Modifier.height(2.dp))
                                 Text(
                                     text = formatCurrency(finalAvailableBalance, displayCurrency.symbol),
@@ -1781,7 +1908,7 @@ fun PaymentPlanProjectionView(
                     }
 
                     Text(
-                        text = "💡 Tus cuentas corrientes se mantienen estables en tu colchón (${formatCurrency(cushionAmount, displayCurrency.symbol)}) para cubrir tus gastos y compromisos. Todo excedente va a tu ahorro.",
+                        text = "💡 Tu cuenta general se mantiene estable en tu colchón (${formatCurrency(cushionAmount, displayCurrency.symbol)}). Todo excedente antes de cobrar se pasa a ahorros, y si necesitas cubrir egresos antes del siguiente ingreso, se calcula automáticamente desde ahorros.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFFE0E7FF).copy(alpha = 0.85f),
                         fontSize = 10.sp
@@ -1823,37 +1950,61 @@ fun PaymentPlanProjectionView(
             }
         } else {
             items(simulatedTimeline, key = { it.id }) { event ->
-                if (event.isSavingsSweep) {
-                    // Savings Sweep Special Card
-                    SavingsSweepCard(
-                        event = event,
-                        cushionAmount = cushionAmount,
-                        displayCurrency = displayCurrency,
-                        onApplySweep = {
-                            surplusAmountToTransfer = event.amount
-                            showTransferSurplusDialog = true
-                        }
-                    )
-                } else {
-                    // Regular simulated event with available money after movement
-                    PlannedEventItemCard(
-                        event = event,
-                        displayCurrency = displayCurrency,
-                        paymentCurrency = paymentCurrency,
-                        rates = rates,
-                        showBalanceAfter = true,
-                        cushionAmount = cushionAmount,
-                        onCardClick = {
-                            selectedEventForDetail = event
-                        },
-                        onToggleReady = {
-                            if (event.isPaid) {
-                                toggleEventReady(viewModel, event, accounts)
-                            } else {
-                                pendingPaymentEvent = event
+                when {
+                    event.isSavingsSweep -> {
+                        SavingsSweepCard(
+                            event = event,
+                            cushionAmount = cushionAmount,
+                            displayCurrency = displayCurrency,
+                            paymentCurrency = paymentCurrency,
+                            rates = rates,
+                            onApplySweep = {
+                                if (event.isPaid) {
+                                    toggleEventReady(viewModel, event, accounts)
+                                } else {
+                                    activeSweepEvent = event
+                                    surplusAmountToTransfer = event.amount
+                                    showTransferSurplusDialog = true
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
+                    event.isSavingsDraw -> {
+                        SavingsDrawCard(
+                            event = event,
+                            displayCurrency = displayCurrency,
+                            paymentCurrency = paymentCurrency,
+                            rates = rates,
+                            onApplyDraw = {
+                                if (event.isPaid) {
+                                    toggleEventReady(viewModel, event, accounts)
+                                } else {
+                                    activeSavingsDrawEvent = event
+                                }
+                            }
+                        )
+                    }
+                    else -> {
+                        // Regular simulated event with available money after movement
+                        PlannedEventItemCard(
+                            event = event,
+                            displayCurrency = displayCurrency,
+                            paymentCurrency = paymentCurrency,
+                            rates = rates,
+                            showBalanceAfter = true,
+                            cushionAmount = cushionAmount,
+                            onCardClick = {
+                                selectedEventForDetail = event
+                            },
+                            onToggleReady = {
+                                if (event.isPaid) {
+                                    toggleEventReady(viewModel, event, accounts)
+                                } else {
+                                    pendingPaymentEvent = event
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -2022,29 +2173,76 @@ fun PaymentPlanProjectionView(
             operatingAccounts = operatingAccounts,
             savingsAccounts = savingsAccounts,
             rates = rates,
-            onDismiss = { showTransferSurplusDialog = false },
-            onConfirm = { fromAcc, toAcc, amount, notes ->
-                viewModel.transferSavings(fromAcc, toAcc, amount, notes, amountCurrency = displayCurrency)
+            onDismiss = {
                 showTransferSurplusDialog = false
+                activeSweepEvent = null
+            },
+            onConfirm = { fromAcc, toAcc, amount, notes ->
+                viewModel.transferSavings(
+                    fromAccount = fromAcc,
+                    toAccount = toAcc,
+                    amount = amount,
+                    notes = notes,
+                    amountCurrency = displayCurrency,
+                    plannedEventId = activeSweepEvent?.id,
+                    date = activeSweepEvent?.dueDate
+                )
+                showTransferSurplusDialog = false
+                activeSweepEvent = null
+            }
+        )
+    }
+
+    activeSavingsDrawEvent?.let { drawEvent ->
+        TransferFromSavingsDialog(
+            suggestedAmount = drawEvent.amount,
+            coveredExpenseTitles = drawEvent.coveredExpenseTitles,
+            displayCurrency = displayCurrency,
+            paymentCurrency = paymentCurrency,
+            savingsAccounts = savingsAccounts,
+            operatingAccounts = allLiquidAccounts,
+            rates = rates,
+            onDismiss = { activeSavingsDrawEvent = null },
+            onConfirm = { fromSavingsAcc, toOperatingAcc, amount, notes ->
+                viewModel.transferSavings(
+                    fromAccount = fromSavingsAcc,
+                    toAccount = toOperatingAcc,
+                    amount = amount,
+                    notes = notes,
+                    amountCurrency = displayCurrency,
+                    plannedEventId = drawEvent.id,
+                    date = drawEvent.dueDate
+                )
+                activeSavingsDrawEvent = null
             }
         )
     }
 }
 
 // ------------------------------------------------------------------------------------------------
-// Card for Savings Sweep (Cuota de Ahorro por exceder colchón)
+// Card for Savings Sweep (Cuota de Ahorro por exceder colchón justo antes del siguiente ingreso)
 // ------------------------------------------------------------------------------------------------
 @Composable
 fun SavingsSweepCard(
     event: PlannedEvent,
     cushionAmount: Double,
     displayCurrency: AppCurrency,
+    paymentCurrency: AppCurrency = displayCurrency,
+    rates: ExchangeRates = ExchangeRates(),
     onApplySweep: () -> Unit
 ) {
+    val showPay = paymentCurrency != displayCurrency
+    val amountPay = rates.convert(event.amount, displayCurrency, paymentCurrency)
+
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("savings_sweep_card_${event.id}"),
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1B4B)) // Deep indigo
+        border = if (event.isPaid) BorderStroke(1.dp, EmeraldLight.copy(alpha = 0.5f)) else null,
+        colors = CardDefaults.cardColors(
+            containerColor = if (event.isPaid) Color(0xFF1E1B4B).copy(alpha = 0.65f) else Color(0xFF1E1B4B)
+        )
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
@@ -2052,7 +2250,28 @@ fun SavingsSweepCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    IconButton(
+                        onClick = onApplySweep,
+                        modifier = Modifier.size(48.dp).testTag("toggle_sweep_${event.id}")
+                    ) {
+                        if (event.isPaid) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Ahorro realizado",
+                                tint = EmeraldLight,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.RadioButtonUnchecked,
+                                contentDescription = "Pendiente - Indicar si pasaste a ahorros",
+                                tint = Color(0xFFA5B4FC),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(4.dp))
                     Box(
                         modifier = Modifier
                             .size(34.dp)
@@ -2065,13 +2284,13 @@ fun SavingsSweepCard(
                     Spacer(Modifier.width(8.dp))
                     Column {
                         Text(
-                            text = "💡 Cuota de Ahorro Sugerida",
+                            text = if (event.isPaid) "✓ Excedente Pasado a Ahorros" else "💡 Pasar Excedente a Ahorros",
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFFA5B4FC),
+                            color = if (event.isPaid) EmeraldLight else Color(0xFFA5B4FC),
                             fontSize = 12.sp
                         )
                         Text(
-                            text = formatDate(event.dueDate),
+                            text = "${formatDate(event.dueDate)} • Antes del ingreso",
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondaryDark,
                             fontSize = 10.sp
@@ -2079,16 +2298,44 @@ fun SavingsSweepCard(
                     }
                 }
 
-                Text(
-                    text = "-${formatCurrency(event.amount, displayCurrency.symbol)}",
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFFA5B4FC),
-                    fontSize = 14.sp
-                )
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "-${formatCurrency(event.amount, displayCurrency.symbol)}",
+                        fontWeight = FontWeight.Bold,
+                        color = if (event.isPaid) EmeraldLight else Color(0xFFA5B4FC),
+                        fontSize = 14.sp
+                    )
+                    if (showPay) {
+                        Text(
+                            text = "Pago: ${formatCurrency(amountPay, paymentCurrency.symbol)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondaryDark,
+                            fontSize = 9.sp
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = if (event.isPaid) EmeraldDark.copy(alpha = 0.45f) else AccentAmber.copy(alpha = 0.22f),
+                        modifier = Modifier.padding(top = 2.dp).clickable { onApplySweep() }
+                    ) {
+                        Text(
+                            text = if (event.isPaid) "✓ LISTO" else "PENDIENTE",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (event.isPaid) EmeraldLight else AccentAmber,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 8.sp,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                        )
+                    }
+                }
             }
 
             Text(
-                text = "Tu dinero disponible superaba el colchón de ${formatCurrency(cushionAmount, displayCurrency.symbol)}. Se aconseja resguardar este excedente en tu Fondo de Ahorro antes de que entre el nuevo ingreso.",
+                text = if (event.isPaid) {
+                    "Ya registraste este traslado hacia tu cuenta de ahorros manteniendo intacto el colchón de ${formatCurrency(cushionAmount, displayCurrency.symbol)}."
+                } else {
+                    "Tu cuenta general supera el colchón de ${formatCurrency(cushionAmount, displayCurrency.symbol)} antes del próximo ingreso. Pasa este excedente a una cuenta de ahorros y márcalo aquí."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondaryDark,
                 fontSize = 11.sp
@@ -2100,7 +2347,7 @@ fun SavingsSweepCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Dinero disponible protegido: ${formatCurrency(event.availableBalanceAfter, displayCurrency.symbol)}",
+                    text = "Colchón protegido: ${formatCurrency(event.availableBalanceAfter, displayCurrency.symbol)}",
                     style = MaterialTheme.typography.labelSmall,
                     color = EmeraldLight,
                     fontWeight = FontWeight.SemiBold,
@@ -2109,16 +2356,209 @@ fun SavingsSweepCard(
 
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF6366F1),
+                    color = if (event.isPaid) SlateCardLight else Color(0xFF6366F1),
                     modifier = Modifier.clickable { onApplySweep() }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Savings, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
+                        Icon(
+                            imageVector = if (event.isPaid) Icons.Default.CheckCircle else Icons.Default.Savings,
+                            contentDescription = null,
+                            tint = if (event.isPaid) EmeraldLight else Color.White,
+                            modifier = Modifier.size(13.dp)
+                        )
                         Spacer(Modifier.width(4.dp))
-                        Text("Apartar a Ahorro", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                        Text(
+                            text = if (event.isPaid) "Desmarcar" else "Indicar / Pasar a Ahorro",
+                            color = if (event.isPaid) EmeraldLight else Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+// Card for Savings Draw (Cobertura desde Ahorros -> Cuenta General cuando el saldo cae de 0)
+// ------------------------------------------------------------------------------------------------
+@Composable
+fun SavingsDrawCard(
+    event: PlannedEvent,
+    displayCurrency: AppCurrency,
+    paymentCurrency: AppCurrency = displayCurrency,
+    rates: ExchangeRates = ExchangeRates(),
+    onApplyDraw: () -> Unit
+) {
+    val showPay = paymentCurrency != displayCurrency
+    val amountPay = rates.convert(event.amount, displayCurrency, paymentCurrency)
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("savings_draw_card_${event.id}"),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, if (event.isPaid) EmeraldLight.copy(alpha = 0.5f) else AccentAmber.copy(alpha = 0.65f)),
+        colors = CardDefaults.cardColors(
+            containerColor = if (event.isPaid) EmeraldDark.copy(alpha = 0.22f) else Color(0xFF172554)
+        )
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    IconButton(
+                        onClick = onApplyDraw,
+                        modifier = Modifier.size(48.dp).testTag("toggle_draw_${event.id}")
+                    ) {
+                        if (event.isPaid) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Cobertura registrada",
+                                tint = EmeraldLight,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.RadioButtonUnchecked,
+                                contentDescription = "Pendiente - Registrar cobertura desde ahorros",
+                                tint = AccentAmber,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(EmeraldPrimary.copy(alpha = 0.22f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = if (event.isPaid) "✓ Cubierto desde Ahorros" else "🛡️ Cubrir desde Ahorros",
+                            fontWeight = FontWeight.Bold,
+                            color = if (event.isPaid) EmeraldLight else AccentAmber,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            text = "${formatDate(event.dueDate)} • Egreso Ahorros → Ingreso Cuenta General",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondaryDark,
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "+${formatCurrency(event.amount, displayCurrency.symbol)}",
+                        fontWeight = FontWeight.Bold,
+                        color = EmeraldLight,
+                        fontSize = 14.sp
+                    )
+                    if (showPay) {
+                        Text(
+                            text = "Pago: ${formatCurrency(amountPay, paymentCurrency.symbol)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondaryDark,
+                            fontSize = 9.sp
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = if (event.isPaid) EmeraldDark.copy(alpha = 0.45f) else AccentAmber.copy(alpha = 0.25f),
+                        modifier = Modifier.padding(top = 2.dp).clickable { onApplyDraw() }
+                    ) {
+                        Text(
+                            text = if (event.isPaid) "✓ LISTO" else "PENDIENTE",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (event.isPaid) EmeraldLight else AccentAmber,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 8.sp,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+
+            Text(
+                text = if (event.isPaid) {
+                    "Ya se registró el egreso en Ahorros y el ingreso a Cuenta General."
+                } else {
+                    "Tu cuenta general cae de 0 antes del siguiente ingreso. Usa ${formatCurrency(event.amount, displayCurrency.symbol)} de Ahorros para cubrir todos los egresos de este tramo."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = TextPrimaryDark,
+                fontSize = 11.sp
+            )
+
+            if (event.coveredExpenseTitles.isNotEmpty()) {
+                Text(
+                    text = "Egresos cubiertos: ${event.coveredExpenseTitles.joinToString(" • ")}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = EmeraldLight,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Cuenta general tras ingreso: ${formatCurrency(event.availableBalanceAfter, displayCurrency.symbol)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = EmeraldLight,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 10.sp
+                    )
+                    if (event.savingsBalanceAfter != null && !event.isPaid) {
+                        Text(
+                            text = "Ahorros restantes: ${formatCurrency(event.savingsBalanceAfter, displayCurrency.symbol)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondaryDark,
+                            fontSize = 9.sp
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (event.isPaid) SlateCardLight else EmeraldPrimary,
+                    modifier = Modifier.clickable { onApplyDraw() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (event.isPaid) Icons.Default.CheckCircle else Icons.Default.Savings,
+                            contentDescription = null,
+                            tint = if (event.isPaid) EmeraldLight else NavySurface,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = if (event.isPaid) "Desmarcar" else "Registrar Traspaso",
+                            color = if (event.isPaid) EmeraldLight else NavySurface,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp
+                        )
                     }
                 }
             }
@@ -2290,8 +2730,8 @@ fun PlannedEventItemCard(
                     else -> AccentRed
                 }
                 val statusText = when {
-                    event.isPaid -> "Ya aplicado al pote"
-                    bal >= cushionAmount -> "✓ Pote seguro"
+                    event.isPaid -> "Ya aplicado a cuenta general"
+                    bal >= cushionAmount -> "✓ Cuenta segura"
                     bal >= 0 -> "⚠️ Tocando colchón"
                     else -> "🚨 Supera disponible"
                 }
@@ -2310,11 +2750,11 @@ fun PlannedEventItemCard(
                     ) {
                         Text(
                             text = if (event.isPaid) {
-                                "Pote actual (sin doble resta):"
+                                "Cuenta general actual (sin doble resta):"
                             } else if (beforeBal != null) {
-                                "Pote: ${formatCurrency(beforeBal, displayCurrency.symbol)} →"
+                                "Cuenta general: ${formatCurrency(beforeBal, displayCurrency.symbol)} →"
                             } else {
-                                "Pote disponible después:"
+                                "Cuenta general después:"
                             },
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondaryDark,
@@ -2393,7 +2833,7 @@ fun GeneralPoolSummaryCard(
                     Spacer(Modifier.width(8.dp))
                     Column {
                         Text(
-                            text = "Pote General Disponible",
+                            text = "Cuenta General Disponible",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimaryDark
@@ -2452,7 +2892,7 @@ fun GeneralPoolSummaryCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text("Pote tras movimientos", fontSize = 9.sp, color = TextSecondaryDark)
+                    Text("Cuenta general tras movimientos", fontSize = 9.sp, color = TextSecondaryDark)
                     Text(
                         text = formatCurrency(endingPool, displayCurrency.symbol),
                         fontWeight = FontWeight.Bold,
@@ -2520,6 +2960,7 @@ fun GeneralPoolSummaryCard(
 @Composable
 fun DeficitDaysSummaryBanner(
     deficitDays: List<DeficitDaySummary>,
+    insufficientSavingsAlerts: List<InsufficientSavingsAlert> = emptyList(),
     minPoolBalance: Double,
     displayCurrency: AppCurrency,
     paymentCurrency: AppCurrency = displayCurrency,
@@ -2573,6 +3014,25 @@ fun DeficitDaysSummaryBanner(
                             text = fallbackMessage,
                             fontSize = 11.sp,
                             color = TextPrimaryDark
+                        )
+                    }
+                }
+            }
+
+            if (insufficientSavingsAlerts.isNotEmpty()) {
+                insufficientSavingsAlerts.forEach { alert ->
+                    val missing = kotlin.math.round((alert.neededAmount - alert.availableSavings).coerceAtLeast(0.0) * 100.0) / 100.0
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = AccentAmber.copy(alpha = 0.16f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "💡 Ahorros (${formatCurrency(alert.availableSavings, displayCurrency.symbol)}) insuficientes para cubrir los ${formatCurrency(alert.neededAmount, displayCurrency.symbol)} necesarios el ${dateFmt.format(alert.date)} (faltan ${formatCurrency(missing, displayCurrency.symbol)}).",
+                            fontSize = 10.sp,
+                            color = AccentAmber,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                         )
                     }
                 }

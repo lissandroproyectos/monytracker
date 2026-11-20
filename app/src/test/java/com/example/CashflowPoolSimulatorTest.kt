@@ -273,4 +273,226 @@ class CashflowPoolSimulatorTest {
         assertEquals(-70.0, result.deficitDays[1].lowestBalance, 0.01)
         assertEquals(-50.0, result.deficitDays[2].lowestBalance, 0.01)
     }
+
+    @Test
+    fun savingsCoverage_transfersExactCumulativeShortfallBeforeNextIncome() {
+        val events = listOf(
+            PlannedEvent(
+                id = "e1_ok",
+                title = "Luz",
+                dueDate = dayOffset(2),
+                amount = 30.0,
+                currency = AppCurrency.USD_BCV,
+                isFixed = true,
+                isIncome = false,
+                isPaid = false
+            ),
+            PlannedEvent(
+                id = "e2_drop",
+                title = "Alquiler",
+                dueDate = dayOffset(4),
+                amount = 100.0,
+                currency = AppCurrency.USD_BCV,
+                isFixed = true,
+                isIncome = false,
+                isPaid = false
+            ),
+            PlannedEvent(
+                id = "e3_drop2",
+                title = "Internet",
+                dueDate = dayOffset(6),
+                amount = 40.0,
+                currency = AppCurrency.USD_BCV,
+                isFixed = true,
+                isIncome = false,
+                isPaid = false
+            ),
+            PlannedEvent(
+                id = "inc_1",
+                title = "Quincena",
+                dueDate = dayOffset(10),
+                amount = 500.0,
+                currency = AppCurrency.USD_BCV,
+                isFixed = false,
+                isIncome = true,
+                isPaid = false
+            )
+        )
+
+        // Cuenta General starts at 50, Ahorros has 200:
+        // Day 2: Luz (-30) -> 20
+        // Day 4: Alquiler (-100) would drop to -80; Day 6: Internet (-40) would drop to -120.
+        // Savings covers total shortfall (120) right before Alquiler:
+        // 20 + 120 = 140 -> 140 - 100 = 40 -> 40 - 40 = 0 -> +500 = 500.
+        val result = simulateGeneralPool(
+            rawEvents = events,
+            startingPool = 50.0,
+            cushionAmount = 20.0,
+            enableSavingsSweep = false,
+            displayCurrency = AppCurrency.USD_BCV,
+            rates = ExchangeRates(),
+            initialSavingsAvailable = 200.0
+        )
+
+        assertFalse(result.hasDeficit)
+        assertTrue(result.deficitEvents.isEmpty())
+        assertEquals(1, result.savingsDraws.size)
+
+        val draw = result.savingsDraws.first()
+        assertEquals(120.0, draw.amount, 0.01)
+        assertFalse(draw.isPaid)
+        assertEquals(listOf("Alquiler", "Internet"), draw.coveredExpenseTitles)
+        assertEquals(80.0, draw.savingsBalanceAfter!!, 0.01)
+
+        assertEquals(80.0, result.endingSavings, 0.01)
+        assertEquals(500.0, result.endingPool, 0.01)
+        assertEquals(0.0, result.minPoolBalance, 0.01)
+    }
+
+    @Test
+    fun insufficientSavings_keepsDeficitAndEmitsInsufficientSavingsAlert() {
+        val events = listOf(
+            PlannedEvent(
+                id = "e1",
+                title = "Alquiler",
+                dueDate = dayOffset(2),
+                amount = 150.0,
+                currency = AppCurrency.USD_BCV,
+                isFixed = true,
+                isIncome = false,
+                isPaid = false
+            ),
+            PlannedEvent(
+                id = "inc_1",
+                title = "Quincena",
+                dueDate = dayOffset(8),
+                amount = 400.0,
+                currency = AppCurrency.USD_BCV,
+                isFixed = false,
+                isIncome = true,
+                isPaid = false
+            )
+        )
+
+        // Pool = 30, Alquiler = 150 -> needs 120, but savings only has 50 -> cannot cover all
+        val result = simulateGeneralPool(
+            rawEvents = events,
+            startingPool = 30.0,
+            cushionAmount = 10.0,
+            enableSavingsSweep = false,
+            displayCurrency = AppCurrency.USD_BCV,
+            rates = ExchangeRates(),
+            initialSavingsAvailable = 50.0
+        )
+
+        assertTrue(result.hasDeficit)
+        assertTrue(result.savingsDraws.isEmpty())
+        assertEquals(1, result.deficitEvents.size)
+        assertEquals(1, result.insufficientSavingsAlerts.size)
+        assertEquals(120.0, result.insufficientSavingsAlerts.first().neededAmount, 0.01)
+        assertEquals(50.0, result.insufficientSavingsAlerts.first().availableSavings, 0.01)
+        assertEquals(50.0, result.endingSavings, 0.01)
+    }
+
+    @Test
+    fun sweepBeforeIncome_growsSavingsAndCoversSubsequentDeficit() {
+        val events = listOf(
+            PlannedEvent(
+                id = "inc_1",
+                title = "Bono",
+                dueDate = dayOffset(2),
+                amount = 100.0,
+                currency = AppCurrency.USD_BCV,
+                isFixed = false,
+                isIncome = true,
+                isPaid = false
+            ),
+            PlannedEvent(
+                id = "e_big",
+                title = "Cuota Vehículo",
+                dueDate = dayOffset(5),
+                amount = 220.0,
+                currency = AppCurrency.USD_BCV,
+                isFixed = false,
+                isIncome = false,
+                isPaid = false
+            ),
+            PlannedEvent(
+                id = "inc_2",
+                title = "Salario",
+                dueDate = dayOffset(8),
+                amount = 300.0,
+                currency = AppCurrency.USD_BCV,
+                isFixed = false,
+                isIncome = true,
+                isPaid = false
+            )
+        )
+
+        // Start pool = 300, cushion = 50, initialSavings = 0.
+        // Before inc_1: excess 300 - 50 = 250 swept to savings (pool=50, savings=250).
+        // inc_1 (+100): pool = 150.
+        // Before e_big (-220): needs 70 -> covered from accumulated savings (250 >= 70)!
+        // Draw +70 (savings=180, pool=220), then e_big (-220) -> pool=0.
+        // inc_2 (+300): pool=300 (<= no sweep if final not set? no sweep at inc_2 because 0 <= 50).
+        val result = simulateGeneralPool(
+            rawEvents = events,
+            startingPool = 300.0,
+            cushionAmount = 50.0,
+            enableSavingsSweep = true,
+            displayCurrency = AppCurrency.USD_BCV,
+            rates = ExchangeRates(),
+            initialSavingsAvailable = 0.0
+        )
+
+        assertFalse(result.hasDeficit)
+        assertEquals(1, result.savingsSweeps.size)
+        assertEquals(250.0, result.savingsSweeps.first().amount, 0.01)
+        assertEquals(1, result.savingsDraws.size)
+        assertEquals(70.0, result.savingsDraws.first().amount, 0.01)
+        assertEquals(180.0, result.endingSavings, 0.01)
+        assertEquals(300.0, result.endingPool, 0.01)
+    }
+
+    @Test
+    fun completedSweepAndDrawTransfers_showPaidWithoutDoubleCounting() {
+        val inc1 = PlannedEvent(
+            id = "inc_1",
+            title = "Quincena",
+            dueDate = dayOffset(5),
+            amount = 400.0,
+            currency = AppCurrency.USD_BCV,
+            isFixed = false,
+            isIncome = true,
+            isPaid = false
+        )
+        val completedSweepTx = com.example.data.model.Transaction(
+            id = "tx_sweep_done",
+            type = "TRANSFER",
+            amount = 150.0,
+            currency = AppCurrency.USD_BCV.name,
+            commitmentId = "sweep_before_inc_1",
+            date = com.google.firebase.Timestamp(dayOffset(5))
+        )
+
+        // Because sweep was already executed, startingPool is already 50 (down from 200) and savings is 150.
+        val result = simulateGeneralPool(
+            rawEvents = listOf(inc1),
+            startingPool = 50.0,
+            cushionAmount = 50.0,
+            enableSavingsSweep = true,
+            displayCurrency = AppCurrency.USD_BCV,
+            rates = ExchangeRates(),
+            initialSavingsAvailable = 150.0,
+            completedPlanTransfers = listOf(completedSweepTx)
+        )
+
+        assertEquals(1, result.savingsSweeps.size)
+        val sweep = result.savingsSweeps.first()
+        assertTrue(sweep.isPaid)
+        assertEquals("tx_sweep_done", sweep.transactionId)
+        assertEquals(150.0, sweep.amount, 0.01)
+        assertEquals(450.0, result.endingPool, 0.01)
+        assertEquals(150.0, result.endingSavings, 0.01)
+    }
 }

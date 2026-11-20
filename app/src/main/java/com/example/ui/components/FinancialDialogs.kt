@@ -218,14 +218,17 @@ fun CategorySelectorDropdown(
 @Composable
 fun AddAccountDialog(
     accountToEdit: Account? = null,
+    initialIsSavings: Boolean = false,
     onDismiss: () -> Unit,
     onSave: (Account) -> Unit,
     onDelete: (() -> Unit)? = null
 ) {
+    var isSavings by remember { mutableStateOf(accountToEdit?.isSavings ?: initialIsSavings) }
     var name by remember { mutableStateOf(accountToEdit?.name ?: "") }
     var selectedType by remember {
         mutableStateOf(
             if (accountToEdit != null) AccountType.entries.find { it.name == accountToEdit.type } ?: AccountType.CASH
+            else if (initialIsSavings) AccountType.DIGITAL_WALLET
             else AccountType.CASH
         )
     }
@@ -238,7 +241,6 @@ fun AddAccountDialog(
     var balanceText by remember {
         mutableStateOf(if (accountToEdit != null) String.format(Locale.US, "%.2f", accountToEdit.currentBalance) else "")
     }
-    var isSavings by remember { mutableStateOf(accountToEdit?.isSavings ?: false) }
     var selectedColor by remember { mutableStateOf(accountToEdit?.colorHex ?: COLOR_OPTIONS[0]) }
 
     // Periodic Income fields
@@ -302,7 +304,12 @@ fun AddAccountDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = if (accountToEdit != null) "Editar Cuenta" else "Nueva Cuenta / Billetera",
+                            text = when {
+                                accountToEdit != null && isSavings -> "Editar Cuenta de Ahorro"
+                                accountToEdit != null -> "Editar Cuenta"
+                                isSavings -> "Nueva Cuenta de Ahorro"
+                                else -> "Nueva Cuenta / Billetera"
+                            },
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimaryDark
@@ -389,15 +396,29 @@ fun AddAccountDialog(
                         }
 
                         // Account Type Dropdown
+                        val typeOptions = remember(isSavings) {
+                            if (isSavings) {
+                                listOf(
+                                    AccountType.DIGITAL_WALLET to "Billetera Digital / Cripto (Ahorro)",
+                                    AccountType.BANK to "Cuenta Bancaria (Ahorro)",
+                                    AccountType.CASH to "Efectivo (Ahorro)",
+                                    AccountType.SAVINGS to "Fondo de Ahorro General"
+                                )
+                            } else {
+                                AccountType.entries.map { it to it.displayName }
+                            }
+                        }
+                        val currentTypeLabel = typeOptions.firstOrNull { it.first == selectedType }?.second ?: selectedType.displayName
+
                         ExposedDropdownMenuBox(
                             expanded = typeExpanded,
                             onExpandedChange = { typeExpanded = it }
                         ) {
                             OutlinedTextField(
-                                value = selectedType.displayName,
+                                value = currentTypeLabel,
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text("Tipo de Cuenta") },
+                                label = { Text(if (isSavings) "Modalidad de Ahorro" else "Tipo de Cuenta") },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = typeExpanded) },
                                 modifier = Modifier.menuAnchor().fillMaxWidth()
                             )
@@ -405,9 +426,9 @@ fun AddAccountDialog(
                                 expanded = typeExpanded,
                                 onDismissRequest = { typeExpanded = false }
                             ) {
-                                AccountType.entries.forEach { type ->
+                                typeOptions.forEach { (type, label) ->
                                     DropdownMenuItem(
-                                        text = { Text(type.displayName) },
+                                        text = { Text(label) },
                                         onClick = {
                                             selectedType = type
                                             if (type == AccountType.SAVINGS) isSavings = true
@@ -4821,4 +4842,282 @@ fun TransferSurplusDialog(
     }
 }
 
+// Dialog to transfer money from a Savings account into a Cuenta General operating account
+// to cover upcoming expenses when Cuenta General drops below 0 before the next income
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TransferFromSavingsDialog(
+    suggestedAmount: Double,
+    coveredExpenseTitles: List<String> = emptyList(),
+    displayCurrency: AppCurrency,
+    paymentCurrency: AppCurrency = displayCurrency,
+    savingsAccounts: List<Account>,
+    operatingAccounts: List<Account>,
+    rates: ExchangeRates,
+    onDismiss: () -> Unit,
+    onConfirm: (fromSavingsAccount: Account, toOperatingAccount: Account, amount: Double, notes: String) -> Unit
+) {
+    var amountText by remember { mutableStateOf(String.format(Locale.US, "%.2f", suggestedAmount)) }
 
+    val openSavingsAccounts = remember(savingsAccounts) {
+        savingsAccounts.filter { !it.isClosed }.sortedByDescending { it.currentBalance }
+    }
+    var selectedFromAccountId by remember {
+        mutableStateOf(
+            openSavingsAccounts.firstOrNull { it.currentBalance > 0 }?.id
+                ?: openSavingsAccounts.firstOrNull()?.id
+                ?: ""
+        )
+    }
+
+    val openOperatingAccounts = remember(operatingAccounts) {
+        operatingAccounts.filter { !it.isSavings && !it.isClosed }
+    }
+    var selectedToAccountId by remember {
+        mutableStateOf(
+            openOperatingAccounts.firstOrNull { !it.isPlanStartAccount }?.id
+                ?: openOperatingAccounts.firstOrNull()?.id
+                ?: ""
+        )
+    }
+
+    val defaultNotes = remember(coveredExpenseTitles) {
+        if (coveredExpenseTitles.isNotEmpty()) {
+            "Cobertura desde Ahorros: ${coveredExpenseTitles.take(3).joinToString(", ")}"
+        } else {
+            "Egreso de Ahorros para cubrir Cuenta General"
+        }
+    }
+    var notes by remember { mutableStateOf(defaultNotes) }
+    var fromExpanded by remember { mutableStateOf(false) }
+    var toExpanded by remember { mutableStateOf(false) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.6f))
+                .systemBarsPadding()
+                .imePadding()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("transfer_from_savings_dialog"),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = SlateCard)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(EmeraldPrimary.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Savings, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(20.dp))
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Cubrir desde Ahorros",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimaryDark
+                                )
+                                Text(
+                                    text = "Egreso en Ahorros + Ingreso a Cuenta General",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondaryDark
+                                )
+                            }
+                        }
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = TextSecondaryDark)
+                        }
+                    }
+
+                    Surface(
+                        color = EmeraldDark.copy(alpha = 0.25f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "Registra un egreso de tu cuenta de ahorros y un ingreso a tu cuenta general para cubrir todos los pagos antes del próximo ingreso:",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextPrimaryDark,
+                                fontSize = 11.sp
+                            )
+                            if (coveredExpenseTitles.isNotEmpty()) {
+                                Text(
+                                    text = "Egresos cubiertos: ${coveredExpenseTitles.joinToString(" • ")}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = EmeraldLight,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = amountText,
+                        onValueChange = { amountText = it },
+                        label = { Text("Monto a transferir (${displayCurrency.displayName})") },
+                        prefix = { Text("${displayCurrency.symbol} ") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    val previewAmt = amountText.replace(",", ".").toDoubleOrNull() ?: 0.0
+                    val previewFrom = openSavingsAccounts.find { it.id == selectedFromAccountId }
+                    val previewTo = openOperatingAccounts.find { it.id == selectedToAccountId }
+                    if (previewAmt > 0 && previewFrom != null && previewTo != null) {
+                        val fromCurr = AppCurrency.fromCode(previewFrom.currency)
+                        val fromAmt = rates.convert(previewAmt, displayCurrency, fromCurr)
+                        val toCurr = AppCurrency.fromCode(previewTo.currency)
+                        val toAmt = rates.convert(previewAmt, displayCurrency, toCurr)
+                        val payAmt = rates.convert(previewAmt, displayCurrency, paymentCurrency)
+                        val payPart = if (paymentCurrency != displayCurrency) " • Pago (${paymentCurrency.code}): ${formatCurrency(payAmt, paymentCurrency.symbol)}" else ""
+                        Text(
+                            text = "Sale de ${previewFrom.name}: -${formatCurrency(fromAmt, fromCurr.symbol)} (${fromCurr.code}) → Entra a ${previewTo.name}: +${formatCurrency(toAmt, toCurr.symbol)} (${toCurr.code})$payPart",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = EmeraldLight,
+                            fontSize = 10.sp
+                        )
+                    }
+
+                    ExposedDropdownMenuBox(
+                        expanded = fromExpanded,
+                        onExpandedChange = { fromExpanded = it }
+                    ) {
+                        val selectedFrom = openSavingsAccounts.find { it.id == selectedFromAccountId }
+                        val label = if (selectedFrom != null) {
+                            val curr = AppCurrency.fromCode(selectedFrom.currency)
+                            "${selectedFrom.name} • Saldo: ${formatCurrency(selectedFrom.currentBalance, curr.symbol)}"
+                        } else "Seleccionar cuenta de ahorros"
+
+                        OutlinedTextField(
+                            value = label,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Egreso desde Cuenta de Ahorros") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = fromExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = fromExpanded,
+                            onDismissRequest = { fromExpanded = false }
+                        ) {
+                            openSavingsAccounts.forEach { acc ->
+                                val curr = AppCurrency.fromCode(acc.currency)
+                                DropdownMenuItem(
+                                    text = { Text("${acc.name} (${acc.currency}) • Saldo: ${formatCurrency(acc.currentBalance, curr.symbol)}") },
+                                    onClick = {
+                                        selectedFromAccountId = acc.id
+                                        fromExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    ExposedDropdownMenuBox(
+                        expanded = toExpanded,
+                        onExpandedChange = { toExpanded = it }
+                    ) {
+                        val selectedTo = openOperatingAccounts.find { it.id == selectedToAccountId }
+                        val label = if (selectedTo != null) {
+                            val curr = AppCurrency.fromCode(selectedTo.currency)
+                            "${selectedTo.name} • Saldo: ${formatCurrency(selectedTo.currentBalance, curr.symbol)}"
+                        } else "Seleccionar cuenta de Cuenta General"
+
+                        OutlinedTextField(
+                            value = label,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Ingreso a Cuenta General") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = toExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = toExpanded,
+                            onDismissRequest = { toExpanded = false }
+                        ) {
+                            openOperatingAccounts.forEach { acc ->
+                                val curr = AppCurrency.fromCode(acc.currency)
+                                DropdownMenuItem(
+                                    text = { Text("${acc.name} (${acc.currency}) • Saldo: ${formatCurrency(acc.currentBalance, curr.symbol)}") },
+                                    onClick = {
+                                        selectedToAccountId = acc.id
+                                        toExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = notes,
+                        onValueChange = { notes = it },
+                        label = { Text("Nota u observación") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                            Text("Cancelar", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        val canSubmit = openSavingsAccounts.isNotEmpty() && openOperatingAccounts.isNotEmpty() && previewAmt > 0.0
+                        Button(
+                            onClick = {
+                                val rawAmt = amountText.replace(",", ".").toDoubleOrNull() ?: suggestedAmount
+                                val amt = kotlin.math.round(rawAmt * 100.0) / 100.0
+                                val fromAcc = openSavingsAccounts.find { it.id == selectedFromAccountId }
+                                    ?: openSavingsAccounts.firstOrNull()
+                                val toAcc = openOperatingAccounts.find { it.id == selectedToAccountId }
+                                    ?: openOperatingAccounts.firstOrNull()
+                                if (fromAcc != null && toAcc != null && amt > 0.0) {
+                                    onConfirm(fromAcc, toAcc, amt, notes.trim())
+                                }
+                            },
+                            enabled = canSubmit,
+                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                            modifier = Modifier.weight(1.3f).testTag("confirm_transfer_from_savings_btn")
+                        ) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = NavySurface, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Registrar Traspaso", color = NavySurface, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

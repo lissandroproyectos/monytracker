@@ -217,14 +217,14 @@ class FinanceViewModel(
                 c1.get(Calendar.DAY_OF_YEAR) == c2.get(Calendar.DAY_OF_YEAR)
         }
 
-        // Point 0: today (sum of all active non-savings accounts = Pote General)
+        // Point 0: today (sum of all active non-savings accounts = Cuenta General)
         points.add(
             CashflowPoint(
                 date = now,
                 label = "Hoy",
                 projectedBalance = runningBalance,
                 change = 0.0,
-                description = "Pote general disponible"
+                description = "Cuenta general disponible"
             )
         )
 
@@ -827,7 +827,9 @@ class FinanceViewModel(
         toAccount: Account,
         amount: Double,
         notes: String? = null,
-        amountCurrency: AppCurrency = AppCurrency.fromCode(fromAccount.currency)
+        amountCurrency: AppCurrency = AppCurrency.fromCode(fromAccount.currency),
+        plannedEventId: String? = null,
+        date: Date? = null
     ) {
         viewModelScope.launch {
             try {
@@ -847,8 +849,9 @@ class FinanceViewModel(
                     amount = roundedAmount,
                     currency = amountCurrency.name,
                     description = notes?.ifBlank { null }
-                        ?: if (actualToAccount.isSavings) "Reserva a Fondo de Ahorro / Colchón" else "Retiro de emergencia desde Ahorros",
-                    date = Timestamp.now()
+                        ?: if (actualToAccount.isSavings) "Reserva a Fondo de Ahorro / Colchón" else "Retiro de Ahorros a Cuenta General",
+                    date = if (date != null) Timestamp(date) else Timestamp.now(),
+                    commitmentId = plannedEventId
                 )
                 repository.addTransaction(currentUserId, tx, exchangeRates.value)
                 _userMessage.value = UiMessage.Success("Transferidos ${formatCurrency(roundedAmount, amountCurrency.symbol)} de ${fromAccount.name} (${fromAccount.currency}) a ${actualToAccount.name} (${actualToAccount.currency})")

@@ -254,7 +254,7 @@ fun CashflowProjectionCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Pote proyectado al final (${endPoint?.label ?: ""}):",
+                        text = "Cuenta general proyectada al final (${endPoint?.label ?: ""}):",
                         style = MaterialTheme.typography.labelSmall,
                         color = TextSecondaryDark
                     )
@@ -305,7 +305,7 @@ fun CashflowProjectionCard(
                                     "⚠️ El saldo cae de 0 en ${groupedByDay.size} día${if (groupedByDay.size == 1) "" else "s"}:"
                                 } else {
                                     val startBal = points.firstOrNull()?.projectedBalance ?: 0.0
-                                    "⚠️ Tu pote actual inicia por debajo de 0 (${formatCurrency(startBal, currencySymbol)})."
+                                    "⚠️ Tu cuenta general actual inicia por debajo de 0 (${formatCurrency(startBal, currencySymbol)})."
                                 },
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,

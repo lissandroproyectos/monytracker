@@ -394,7 +394,7 @@ fun BalanceOverviewCard(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Pote General Disponible",
+                            text = "Cuenta General Disponible",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = TextSecondaryDark
@@ -612,14 +612,20 @@ fun AccountItemCard(
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextPrimaryDark
                             )
-                            if (account.isSavings) {
+                            if (account.isSavings || account.type == AccountType.SAVINGS.name) {
                                 Spacer(modifier = Modifier.width(6.dp))
+                                val savingsBadge = when (account.type) {
+                                    AccountType.DIGITAL_WALLET.name -> "Digital (Ahorro)"
+                                    AccountType.BANK.name -> "Bancaria (Ahorro)"
+                                    AccountType.CASH.name -> "Efectivo (Ahorro)"
+                                    else -> "Ahorro"
+                                }
                                 Surface(
                                     color = EmeraldDark.copy(alpha = 0.4f),
                                     shape = RoundedCornerShape(6.dp)
                                 ) {
                                     Text(
-                                        text = "Ahorro",
+                                        text = savingsBadge,
                                         style = MaterialTheme.typography.labelSmall,
                                         color = EmeraldLight,
                                         fontSize = 9.sp,
