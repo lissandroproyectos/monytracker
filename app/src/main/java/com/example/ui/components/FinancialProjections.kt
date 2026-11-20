@@ -278,8 +278,17 @@ fun CashflowProjectionCard(
                     }
                 }
 
-                if (firstDeficit != null) {
+                val deficitPoints = remember(points) {
+                    points.filter { it.change < -0.001 && it.projectedBalance < -0.001 }
+                }
+                val startAlreadyNegative = points.firstOrNull()?.let { it.projectedBalance < -0.001 } == true
+
+                if (deficitPoints.isNotEmpty() || startAlreadyNegative) {
                     Spacer(modifier = Modifier.height(8.dp))
+                    var showAllDeficitDays by remember { mutableStateOf(false) }
+                    val groupedByDay = remember(deficitPoints) { deficitPoints.groupBy { it.label } }
+                    val visibleDays = if (showAllDeficitDays) groupedByDay.entries.toList() else groupedByDay.entries.take(3)
+
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = AccentRed.copy(alpha = 0.14f),
@@ -287,17 +296,56 @@ fun CashflowProjectionCard(
                             .fillMaxWidth()
                             .testTag("cashflow_deficit_banner")
                     ) {
-                        val paySuffix = if (paymentCurrency != displayCurrency) {
-                            val payDef = rates.convert(firstDeficit.projectedBalance, displayCurrency, paymentCurrency)
-                            " (${formatCurrency(payDef, paymentCurrency.symbol)} ${paymentCurrency.code})"
-                        } else ""
-                        Text(
-                            text = "⚠️ El pote queda insuficiente desde ${firstDeficit.label} (${firstDeficit.description}): saldo proyectado ${formatCurrency(firstDeficit.projectedBalance, currencySymbol)}$paySuffix.",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = AccentRed,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
-                        )
+                        Column(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = if (groupedByDay.isNotEmpty()) {
+                                    "⚠️ El saldo cae de 0 en ${groupedByDay.size} día${if (groupedByDay.size == 1) "" else "s"}:"
+                                } else {
+                                    val startBal = points.firstOrNull()?.projectedBalance ?: 0.0
+                                    "⚠️ Tu pote actual inicia por debajo de 0 (${formatCurrency(startBal, currencySymbol)})."
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = AccentRed
+                            )
+
+                            visibleDays.forEach { (dayLabel, dayPoints) ->
+                                val lowestDayBal = dayPoints.minOf { it.projectedBalance }
+                                val paySuffix = if (paymentCurrency != displayCurrency) {
+                                    " (${formatCurrency(rates.convert(lowestDayBal, displayCurrency, paymentCurrency), paymentCurrency.symbol)} ${paymentCurrency.code})"
+                                } else ""
+                                Text(
+                                    text = "📅 $dayLabel → Saldo cae a ${formatCurrency(lowestDayBal, currencySymbol)}$paySuffix",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = AccentRed,
+                                    fontSize = 11.sp
+                                )
+                                dayPoints.forEach { pt ->
+                                    Text(
+                                        text = "   • ${pt.description} (${formatCurrency(pt.change, currencySymbol)}) → ${formatCurrency(pt.projectedBalance, currencySymbol)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = TextPrimaryDark,
+                                        fontSize = 10.sp
+                                    )
+                                }
+                            }
+
+                            if (groupedByDay.size > 3) {
+                                Text(
+                                    text = if (showAllDeficitDays) "Mostrar menos ▲" else "Ver los ${groupedByDay.size} días con saldo < 0 ▼",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AccentRed,
+                                    modifier = Modifier
+                                        .clickable { showAllDeficitDays = !showAllDeficitDays }
+                                        .padding(top = 4.dp, bottom = 2.dp)
+                                )
+                            }
+                        }
                     }
                 }
             } else {

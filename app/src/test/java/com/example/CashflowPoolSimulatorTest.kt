@@ -191,4 +191,86 @@ class CashflowPoolSimulatorTest {
         assertEquals(-30.0, result.minPoolBalance, 0.01)
         assertEquals(270.0, result.endingPool, 0.01)
     }
+
+    @Test
+    fun multiDayDeficitSummary_capturesAllDaysAndExpensesBelowZero() {
+        val day1 = dayOffset(1)
+        val day3 = dayOffset(3)
+        val day5 = dayOffset(5)
+        val day7 = dayOffset(7)
+
+        val events = listOf(
+            PlannedEvent(
+                id = "d1_ok",
+                title = "Café",
+                dueDate = day1,
+                amount = 40.0,
+                currency = AppCurrency.USD_BCV,
+                isFixed = false,
+                isIncome = false,
+                isPaid = false
+            ),
+            PlannedEvent(
+                id = "d1_drop",
+                title = "Alquiler",
+                dueDate = day1,
+                amount = 100.0,
+                currency = AppCurrency.USD_BCV,
+                isFixed = true,
+                isIncome = false,
+                isPaid = false
+            ),
+            PlannedEvent(
+                id = "d3_deep",
+                title = "Luz",
+                dueDate = day3,
+                amount = 30.0,
+                currency = AppCurrency.USD_BCV,
+                isFixed = true,
+                isIncome = false,
+                isPaid = false
+            ),
+            PlannedEvent(
+                id = "d5_inc",
+                title = "Quincena",
+                dueDate = day5,
+                amount = 200.0,
+                currency = AppCurrency.USD_BCV,
+                isFixed = false,
+                isIncome = true,
+                isPaid = false
+            ),
+            PlannedEvent(
+                id = "d7_drop2",
+                title = "Cuota Moto",
+                dueDate = day7,
+                amount = 180.0,
+                currency = AppCurrency.USD_BCV,
+                isFixed = false,
+                isIncome = false,
+                isPaid = false
+            )
+        )
+
+        // Starting pool = 100
+        // Day 1: 100 - 40 = +60 (OK), 60 - 100 = -40 (Deficit Day 1: Alquiler)
+        // Day 3: -40 - 30 = -70 (Deficit Day 2: Luz)
+        // Day 5: -70 + 200 = +130 (Recovered)
+        // Day 7: 130 - 180 = -50 (Deficit Day 3: Cuota Moto)
+        val result = simulateGeneralPool(
+            rawEvents = events,
+            startingPool = 100.0,
+            cushionAmount = 20.0,
+            enableSavingsSweep = false,
+            displayCurrency = AppCurrency.USD_BCV,
+            rates = ExchangeRates()
+        )
+
+        assertEquals(3, result.deficitEvents.size)
+        assertEquals(listOf("d1_drop", "d3_deep", "d7_drop2"), result.deficitEvents.map { it.id })
+        assertEquals(3, result.deficitDays.size)
+        assertEquals(-40.0, result.deficitDays[0].lowestBalance, 0.01)
+        assertEquals(-70.0, result.deficitDays[1].lowestBalance, 0.01)
+        assertEquals(-50.0, result.deficitDays[2].lowestBalance, 0.01)
+    }
 }

@@ -2,7 +2,15 @@ package com.example.ui.screens
 
 import com.example.data.currency.AppCurrency
 import com.example.data.currency.ExchangeRates
+import java.util.Calendar
 import java.util.Date
+
+data class DeficitDaySummary(
+    val date: Date,
+    val events: List<PlannedEvent>,
+    val lowestBalance: Double,
+    val totalDeficitExpensesInDisplay: Double
+)
 
 data class PoolSimulationResult(
     val events: List<PlannedEvent>,
@@ -11,6 +19,8 @@ data class PoolSimulationResult(
     val minPoolBalance: Double,
     val minPoolEvent: PlannedEvent?,
     val firstDeficitEvent: PlannedEvent?,
+    val deficitEvents: List<PlannedEvent> = emptyList(),
+    val deficitDays: List<DeficitDaySummary> = emptyList(),
     val totalPendingIncomes: Double,
     val totalPendingExpenses: Double,
     val totalPeriodIncomes: Double,
@@ -28,7 +38,7 @@ private fun round2(value: Double): Double = kotlin.math.round(value * 100.0) / 1
  * - `startingPool` is the current live sum of all active operating (non-savings, non-closed) accounts.
  * - Events with `isPaid == true` are already reflected in `startingPool`, so they do NOT add/subtract again.
  * - Pending (`!isPaid`) expenses deduct from the running pool; pending incomes add to it.
- * - Detects the exact first movement where the pool drops below zero (`firstDeficitEvent`).
+ * - Detects every movement (`deficitEvents`) and day (`deficitDays`) where the pool drops below zero.
  */
 fun simulateGeneralPool(
     rawEvents: List<PlannedEvent>,
@@ -43,7 +53,7 @@ fun simulateGeneralPool(
     var runningAvailable = round2(startingPool)
     var minBalance = runningAvailable
     var minEvent: PlannedEvent? = null
-    var firstDeficit: PlannedEvent? = null
+    val allDeficitEvents = mutableListOf<PlannedEvent>()
 
     var pendingIncomes = 0.0
     var pendingExpenses = 0.0
@@ -123,8 +133,8 @@ fun simulateGeneralPool(
                 minBalance = runningAvailable
                 minEvent = updatedEvent
             }
-            if (runningAvailable < -0.001 && firstDeficit == null) {
-                firstDeficit = updatedEvent
+            if (runningAvailable < -0.001) {
+                allDeficitEvents.add(updatedEvent)
             }
         }
     }
@@ -154,13 +164,35 @@ fun simulateGeneralPool(
         }
     }
 
+    val deficitDays = allDeficitEvents
+        .groupBy { ev ->
+            val cal = Calendar.getInstance().apply { time = ev.dueDate }
+            "${cal.get(Calendar.YEAR)}-${cal.get(Calendar.DAY_OF_YEAR)}"
+        }
+        .values
+        .map { dayEvents ->
+            val lowest = dayEvents.minOf { it.availableBalanceAfter }
+            val totalDayExpenses = round2(
+                dayEvents.sumOf { rates.convert(it.amount, it.currency, displayCurrency) }
+            )
+            DeficitDaySummary(
+                date = dayEvents.first().dueDate,
+                events = dayEvents,
+                lowestBalance = lowest,
+                totalDeficitExpensesInDisplay = totalDayExpenses
+            )
+        }
+        .sortedBy { it.date.time }
+
     return PoolSimulationResult(
         events = results,
         startingPool = round2(startingPool),
         endingPool = runningAvailable,
         minPoolBalance = minBalance,
         minPoolEvent = minEvent,
-        firstDeficitEvent = firstDeficit,
+        firstDeficitEvent = allDeficitEvents.firstOrNull(),
+        deficitEvents = allDeficitEvents,
+        deficitDays = deficitDays,
         totalPendingIncomes = pendingIncomes,
         totalPendingExpenses = pendingExpenses,
         totalPeriodIncomes = periodIncomes,

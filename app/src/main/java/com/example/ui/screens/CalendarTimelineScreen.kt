@@ -617,49 +617,22 @@ fun MonthlyCalendarView(
             }
         }
 
-        // Financial Deficit Warning Alert Banner
+        // Financial Deficit Warning Alert Banner (All days & expenses where balance < 0)
         if (hasDeficitMonth) {
             item {
-                val deficitDateFmt = remember { SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("es-ES")) }
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = AccentRed.copy(alpha = 0.15f),
-                    border = BorderStroke(1.dp, AccentRed.copy(alpha = 0.5f)),
-                    modifier = Modifier.fillMaxWidth().testTag("monthly_deficit_alert_banner")
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Warning, contentDescription = null, tint = AccentRed, modifier = Modifier.size(24.dp))
-                        Spacer(Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = if (firstDeficitEvent != null)
-                                    "🚨 Egresos superan lo disponible el ${deficitDateFmt.format(firstDeficitEvent.dueDate)}"
-                                else
-                                    "🚨 ALERTA FINANCIERA: Los egresos superan lo disponible en $monthTitle",
-                                fontWeight = FontWeight.Bold,
-                                color = AccentRed,
-                                fontSize = 12.sp
-                            )
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                text = if (firstDeficitEvent != null) {
-                                    val falta = kotlin.math.abs(firstDeficitEvent.availableBalanceAfter)
-                                    val faltaPaySuffix = if (paymentCurrency != displayCurrency) {
-                                        " (${formatCurrency(rates.convert(falta, displayCurrency, paymentCurrency), paymentCurrency.symbol)} ${paymentCurrency.code})"
-                                    } else ""
-                                    "Al cubrir «${firstDeficitEvent.title}» (-${formatCurrency(rates.convert(firstDeficitEvent.amount, firstDeficitEvent.currency, displayCurrency), displayCurrency.symbol)}), el pote general cae a ${formatCurrency(firstDeficitEvent.availableBalanceAfter, displayCurrency.symbol)}. Te faltan ${formatCurrency(falta, displayCurrency.symbol)}$faltaPaySuffix antes de esa fecha."
-                                } else {
-                                    "Los egresos previstos (-${formatCurrency(totalExpensesMonth, displayCurrency.symbol)}) superan tu pote e ingresos (+${formatCurrency(monthStartingPot + totalIncomeMonth, displayCurrency.symbol)})."
-                                },
-                                fontSize = 11.sp,
-                                color = TextPrimaryDark
-                            )
-                        }
-                    }
-                }
+                val faltaTotal = kotlin.math.abs(monthSimulation.minPoolBalance)
+                val fallbackMsg = "Los egresos previstos (-${formatCurrency(totalExpensesMonth, displayCurrency.symbol)}) superan tu pote e ingresos (+${formatCurrency(monthStartingPot + totalIncomeMonth, displayCurrency.symbol)})."
+                DeficitDaysSummaryBanner(
+                    deficitDays = monthSimulation.deficitDays,
+                    minPoolBalance = monthSimulation.minPoolBalance,
+                    displayCurrency = displayCurrency,
+                    paymentCurrency = paymentCurrency,
+                    rates = rates,
+                    fallbackTitle = "🚨 ALERTA FINANCIERA: Los egresos superan lo disponible en $monthTitle",
+                    fallbackMessage = if (monthSimulation.deficitDays.isEmpty()) fallbackMsg else null,
+                    testTag = "monthly_deficit_alert_banner",
+                    onEventClick = { ev -> selectedEventForDetail = ev }
+                )
             }
         }
 
@@ -1643,40 +1616,21 @@ fun PaymentPlanProjectionView(
                         }
                     }
 
-                    // Exact Deficit Moment Alert inside Plan & Proyección
-                    val deficitEv = timelineSimulation.firstDeficitEvent
-                    if (deficitEv != null) {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = AccentRed.copy(alpha = 0.16f),
-                            border = BorderStroke(1.dp, AccentRed.copy(alpha = 0.55f)),
-                            modifier = Modifier.fillMaxWidth().testTag("timeline_deficit_alert_banner")
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.Warning, contentDescription = null, tint = AccentRed, modifier = Modifier.size(20.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Column {
-                                    Text(
-                                        text = "🚨 Momento de déficit: ${dateFormat.format(deficitEv.dueDate)}",
-                                        fontWeight = FontWeight.Bold,
-                                        color = AccentRed,
-                                        fontSize = 11.sp
-                                    )
-                                    val falta = kotlin.math.abs(deficitEv.availableBalanceAfter)
-                                    val faltaPaySuffix = if (paymentCurrency != displayCurrency) {
-                                        " (${formatCurrency(rates.convert(falta, displayCurrency, paymentCurrency), paymentCurrency.symbol)} ${paymentCurrency.code})"
-                                    } else ""
-                                    Text(
-                                        text = "Al pagar «${deficitEv.title}», tu pote baja de ${formatCurrency(deficitEv.runningAvailableBefore ?: 0.0, displayCurrency.symbol)} a ${formatCurrency(deficitEv.availableBalanceAfter, displayCurrency.symbol)}. Necesitas ${formatCurrency(falta, displayCurrency.symbol)}$faltaPaySuffix antes de esa fecha.",
-                                        fontSize = 10.sp,
-                                        color = TextPrimaryDark
-                                    )
-                                }
-                            }
-                        }
+                    // Full Deficit Summary: exact days and expenses where balance drops below 0
+                    if (timelineSimulation.deficitDays.isNotEmpty() || timelineSimulation.minPoolBalance < -0.001) {
+                        DeficitDaysSummaryBanner(
+                            deficitDays = timelineSimulation.deficitDays,
+                            minPoolBalance = timelineSimulation.minPoolBalance,
+                            displayCurrency = displayCurrency,
+                            paymentCurrency = paymentCurrency,
+                            rates = rates,
+                            fallbackTitle = "🚨 El saldo del pote está por debajo de 0",
+                            fallbackMessage = if (timelineSimulation.deficitDays.isEmpty()) {
+                                "Tu pote disponible actual es ${formatCurrency(timelineSimulation.minPoolBalance, displayCurrency.symbol)}."
+                            } else null,
+                            testTag = "timeline_deficit_alert_banner",
+                            onEventClick = { ev -> selectedEventForDetail = ev }
+                        )
                     }
                 }
             }
@@ -2557,6 +2511,158 @@ fun GeneralPoolSummaryCard(
                             checkedTrackColor = EmeraldDark
                         )
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DeficitDaysSummaryBanner(
+    deficitDays: List<DeficitDaySummary>,
+    minPoolBalance: Double,
+    displayCurrency: AppCurrency,
+    paymentCurrency: AppCurrency = displayCurrency,
+    rates: ExchangeRates,
+    fallbackTitle: String,
+    fallbackMessage: String? = null,
+    testTag: String,
+    onEventClick: ((PlannedEvent) -> Unit)? = null
+) {
+    val dateFmt = remember { SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("es-ES")) }
+    var showAllDays by remember { mutableStateOf(false) }
+    val showPay = paymentCurrency != displayCurrency
+    val maxDeficit = kotlin.math.abs(minPoolBalance)
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = AccentRed.copy(alpha = 0.14f),
+        border = BorderStroke(1.dp, AccentRed.copy(alpha = 0.55f)),
+        modifier = Modifier.fillMaxWidth().testTag(testTag)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Warning, contentDescription = null, tint = AccentRed, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (deficitDays.isNotEmpty()) {
+                            "🚨 El saldo cae de 0 en ${deficitDays.size} día${if (deficitDays.size == 1) "" else "s"}"
+                        } else {
+                            fallbackTitle
+                        },
+                        fontWeight = FontWeight.Bold,
+                        color = AccentRed,
+                        fontSize = 12.sp
+                    )
+                    if (deficitDays.isNotEmpty()) {
+                        val paySuffix = if (showPay) {
+                            " (${formatCurrency(rates.convert(maxDeficit, displayCurrency, paymentCurrency), paymentCurrency.symbol)} ${paymentCurrency.code})"
+                        } else ""
+                        Text(
+                            text = "Faltante máximo en el período: ${formatCurrency(maxDeficit, displayCurrency.symbol)}$paySuffix",
+                            fontSize = 10.sp,
+                            color = TextPrimaryDark,
+                            fontWeight = FontWeight.Medium
+                        )
+                    } else if (!fallbackMessage.isNullOrBlank()) {
+                        Text(
+                            text = fallbackMessage,
+                            fontSize = 11.sp,
+                            color = TextPrimaryDark
+                        )
+                    }
+                }
+            }
+
+            if (deficitDays.isNotEmpty()) {
+                val visibleDays = if (showAllDays) deficitDays else deficitDays.take(4)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    visibleDays.forEach { daySummary ->
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = SlateBackground.copy(alpha = 0.78f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "📅 ${dateFmt.format(daySummary.date)}",
+                                        fontWeight = FontWeight.Bold,
+                                        color = AccentRed,
+                                        fontSize = 11.sp
+                                    )
+                                    val dayPayStr = if (showPay) {
+                                        " · ${formatCurrency(rates.convert(daySummary.lowestBalance, displayCurrency, paymentCurrency), paymentCurrency.symbol)}"
+                                    } else ""
+                                    Text(
+                                        text = "Saldo cae a ${formatCurrency(daySummary.lowestBalance, displayCurrency.symbol)}$dayPayStr",
+                                        fontWeight = FontWeight.Bold,
+                                        color = AccentRed,
+                                        fontSize = 10.sp
+                                    )
+                                }
+
+                                daySummary.events.forEach { ev ->
+                                    val evDisp = rates.convert(ev.amount, ev.currency, displayCurrency)
+                                    val amtText = if (ev.currency != displayCurrency) {
+                                        "-${formatCurrency(ev.amount, ev.currency.symbol)} (${formatCurrency(evDisp, displayCurrency.symbol)})"
+                                    } else {
+                                        "-${formatCurrency(evDisp, displayCurrency.symbol)}"
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .then(
+                                                if (onEventClick != null) Modifier.clickable { onEventClick(ev) }
+                                                else Modifier
+                                            )
+                                            .padding(vertical = 2.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "• ${ev.title} ($amtText)",
+                                            fontSize = 10.sp,
+                                            color = TextPrimaryDark,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            text = "→ ${formatCurrency(ev.availableBalanceAfter, displayCurrency.symbol)}",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = AccentRed
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (deficitDays.size > 4) {
+                    TextButton(
+                        onClick = { showAllDays = !showAllDays },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = if (showAllDays) "Ocultar días adicionales ▲" else "Ver todos los ${deficitDays.size} días con saldo bajo 0 ▼",
+                            color = AccentRed,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        )
+                    }
                 }
             }
         }
