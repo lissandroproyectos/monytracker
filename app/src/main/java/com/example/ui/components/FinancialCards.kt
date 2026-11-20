@@ -356,6 +356,10 @@ fun BalanceOverviewCard(
     totalFixedExpenses: Double,
     totalDebts: Double,
     currencySymbol: String = "$",
+    liquidAccountsCount: Int = 0,
+    totalBalanceInPayment: Double? = null,
+    displayCurrency: AppCurrency = AppCurrency.USD_BCV,
+    paymentCurrency: AppCurrency = displayCurrency,
     onNewIncomeClick: () -> Unit,
     onNewExpenseClick: () -> Unit,
     onNewCommitmentClick: () -> Unit,
@@ -388,18 +392,34 @@ fun BalanceOverviewCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Dinero Disponible Líquido",
+                            text = "Pote General Disponible",
                             style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
                             color = TextSecondaryDark
                         )
+                        if (liquidAccountsCount > 0) {
+                            Text(
+                                text = "Suma total de $liquidAccountsCount ${if (liquidAccountsCount == 1) "cuenta líquida" else "cuentas líquidas"}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = EmeraldLight.copy(alpha = 0.85f)
+                            )
+                        }
                         Text(
                             text = formatCurrency(totalBalance, currencySymbol),
                             style = MaterialTheme.typography.displayMedium,
                             fontWeight = FontWeight.Bold,
                             color = if (totalBalance >= 0) EmeraldLight else AccentRed
                         )
+                        if (totalBalanceInPayment != null && paymentCurrency != displayCurrency) {
+                            Text(
+                                text = "Equiv. pago (${paymentCurrency.code}): ${formatCurrency(totalBalanceInPayment, paymentCurrency.symbol)}",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextSecondaryDark
+                            )
+                        }
                     }
                     Box(
                         modifier = Modifier
@@ -535,6 +555,9 @@ fun AccountItemCard(
     onDelete: () -> Unit,
     onAddIncome: (() -> Unit)? = null,
     onAddExpense: (() -> Unit)? = null,
+    displayCurrency: AppCurrency? = null,
+    paymentCurrency: AppCurrency? = null,
+    rates: ExchangeRates? = null,
     modifier: Modifier = Modifier
 ) {
     val accCurrency = AppCurrency.fromCode(account.currency)
@@ -660,6 +683,24 @@ fun AccountItemCard(
                             fontWeight = FontWeight.Bold,
                             color = if (account.currentBalance >= 0) TextPrimaryDark else AccentRed
                         )
+                        if (rates != null && displayCurrency != null && accCurrency != displayCurrency) {
+                            val balDisp = rates.convert(account.currentBalance, accCurrency, displayCurrency)
+                            Text(
+                                text = "≈ ${formatCurrency(balDisp, displayCurrency.symbol)} (${displayCurrency.code})",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = EmeraldLight,
+                                fontSize = 10.sp
+                            )
+                        }
+                        if (rates != null && paymentCurrency != null && paymentCurrency != accCurrency && paymentCurrency != displayCurrency) {
+                            val balPay = rates.convert(account.currentBalance, accCurrency, paymentCurrency)
+                            Text(
+                                text = "Pago: ${formatCurrency(balPay, paymentCurrency.symbol)} (${paymentCurrency.code})",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondaryDark,
+                                fontSize = 9.sp
+                            )
+                        }
                         Text(
                             text = "Inicial: ${formatCurrency(account.initialBalance, accCurrency.symbol)}",
                             style = MaterialTheme.typography.labelSmall,
@@ -810,6 +851,9 @@ fun TransactionRow(
     onDelete: () -> Unit,
     onClick: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null,
+    displayCurrency: AppCurrency? = null,
+    paymentCurrency: AppCurrency? = null,
+    rates: ExchangeRates? = null,
     modifier: Modifier = Modifier
 ) {
     val isIncome = transaction.type == TransactionType.INCOME.name
@@ -903,13 +947,33 @@ fun TransactionRow(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "$sign${formatCurrency(transaction.amount, txCurrency.symbol)}",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = amountColor,
-                    fontSize = 14.sp
-                )
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "$sign${formatCurrency(transaction.amount, txCurrency.symbol)}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = amountColor,
+                        fontSize = 14.sp
+                    )
+                    if (rates != null && displayCurrency != null && txCurrency != displayCurrency) {
+                        val eqDisp = rates.convert(transaction.amount, txCurrency, displayCurrency)
+                        Text(
+                            text = "≈ ${formatCurrency(eqDisp, displayCurrency.symbol)} (${displayCurrency.code})",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondaryDark,
+                            fontSize = 9.sp
+                        )
+                    }
+                    if (rates != null && paymentCurrency != null && paymentCurrency != txCurrency && paymentCurrency != displayCurrency) {
+                        val eqPay = rates.convert(transaction.amount, txCurrency, paymentCurrency)
+                        Text(
+                            text = "Pago: ${formatCurrency(eqPay, paymentCurrency.symbol)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondaryDark,
+                            fontSize = 9.sp
+                        )
+                    }
+                }
                 if (onEdit != null) {
                     IconButton(
                         onClick = onEdit,

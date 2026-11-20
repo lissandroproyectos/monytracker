@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "166010243644",
+    "project_id": "caribbou-net-storage-manager",
+    "storage_bucket": "caribbou-net-storage-manager.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:166010243644:android:3a6b97d46cc88ec4a15139",
+        "android_client_info": {
+          "package_name": "com.aistudio.finanzas.kpwrzq"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "166010243644-7rq2p2q4o0qjh2ldlhp985nmo9fncd6i.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.finanzas.kpwrzq",
+            "certificate_hash": "b48ca455f44b94d2d80062a74e509cfabbd31f18"
+          }
+        },
+        {
+          "client_id": "166010243644-q8chp7cgoo1ltng0fi7u3h8gi9jm8hhr.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAn5JBiam28MdxM5B9b6vK-D4vzu6Gs0HU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "166010243644-q8chp7cgoo1ltng0fi7u3h8gi9jm8hhr.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -361,6 +361,9 @@ fun MainApp(
                 accounts = accounts,
                 customExpenseCategories = settings.customExpenseCategories,
                 customIncomeCategories = settings.customIncomeCategories,
+                rates = rates,
+                displayCurrency = health.displayCurrency,
+                paymentCurrency = health.paymentCurrency,
                 onDismiss = { showAddTxDialog = null },
                 onSave = { tx -> viewModel.addTransaction(tx) },
                 onCreateCategory = { name, isInc -> viewModel.addCustomCategory(name, isInc) }
@@ -388,6 +391,9 @@ fun MainApp(
         PayCommitmentDialog(
             commitment = comm,
             accounts = accounts,
+            rates = rates,
+            displayCurrency = health.displayCurrency,
+            paymentCurrency = health.paymentCurrency,
             onDismiss = { commitmentToPay = null },
             onConfirm = { payment, account ->
                 viewModel.payCommitment(payment, comm, account)
@@ -401,9 +407,10 @@ fun MainApp(
             accounts = accounts,
             rates = rates,
             displayCurrency = health.displayCurrency,
+            paymentCurrency = health.paymentCurrency,
             onDismiss = { commitmentToInspectInstallments = null },
-            onToggleInstallment = { number, isPaid, account, paidDate ->
-                viewModel.toggleInstallment(comm, number, isPaid, account, paidDate)
+            onToggleInstallment = { number, isPaid, account, paidDate, paidAmount ->
+                viewModel.toggleInstallment(comm, number, isPaid, account, paidDate, paidAmount)
             },
             onEdit = { commitmentToEditInDialog = comm },
             onDelete = { commitmentToDeleteInDialog = comm },
@@ -479,9 +486,11 @@ fun MainApp(
             accounts = accounts,
             suggestedAmount = health.surplusAvailableForSavings,
             displayCurrency = health.displayCurrency,
+            paymentCurrency = health.paymentCurrency,
+            rates = rates,
             onDismiss = { showTransferSavingsDialog = false },
             onConfirm = { from, to, amount ->
-                viewModel.transferSavings(from, to, amount)
+                viewModel.transferSavings(from, to, amount, amountCurrency = health.displayCurrency)
             }
         )
     }

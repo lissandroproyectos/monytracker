@@ -134,6 +134,10 @@ object BackupManager {
             obj.put("isFixedExpense", tx.isFixedExpense)
             obj.put("targetAccountId", tx.targetAccountId ?: "")
             obj.put("commitmentId", tx.commitmentId ?: "")
+            tx.accountDelta?.let { obj.put("accountDelta", it) }
+            tx.accountCurrency?.let { obj.put("accountCurrency", it) }
+            tx.targetAccountDelta?.let { obj.put("targetAccountDelta", it) }
+            tx.targetAccountCurrency?.let { obj.put("targetAccountCurrency", it) }
             obj.put("timestampSeconds", tx.date?.seconds ?: (System.currentTimeMillis() / 1000L))
             txArr.put(obj)
         }
@@ -273,6 +277,10 @@ object BackupManager {
                         isFixedExpense = o.optBoolean("isFixedExpense", false),
                         targetAccountId = o.optString("targetAccountId").ifBlank { null },
                         commitmentId = o.optString("commitmentId").ifBlank { null },
+                        accountDelta = if (o.has("accountDelta")) o.optDouble("accountDelta") else null,
+                        accountCurrency = o.optString("accountCurrency").ifBlank { null },
+                        targetAccountDelta = if (o.has("targetAccountDelta")) o.optDouble("targetAccountDelta") else null,
+                        targetAccountCurrency = o.optString("targetAccountCurrency").ifBlank { null },
                         date = Timestamp(sec, 0),
                         createdAt = Timestamp.now()
                     )

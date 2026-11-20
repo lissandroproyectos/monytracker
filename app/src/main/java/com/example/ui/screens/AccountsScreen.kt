@@ -71,6 +71,11 @@ fun AccountsScreen(
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val transactions by viewModel.transactions.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val health by viewModel.financialHealth.collectAsStateWithLifecycle()
+    val rates by viewModel.exchangeRates.collectAsStateWithLifecycle()
+    val dispCurr = health.displayCurrency
+    val payCurr = health.paymentCurrency
+
     var showAddAccountDialog by remember { mutableStateOf(false) }
     var accountToEdit by remember { mutableStateOf<Account?>(null) }
     var accountToDelete by remember { mutableStateOf<Account?>(null) }
@@ -80,9 +85,19 @@ fun AccountsScreen(
     var transactionToDelete by remember { mutableStateOf<Transaction?>(null) }
 
     val visibleAccounts = remember(accounts) { accounts.filter { !it.isClosed } }
-    val totalBalance = visibleAccounts.sumOf { it.currentBalance }
+    val totalBalance = remember(visibleAccounts, rates, dispCurr) {
+        visibleAccounts.sumOf { rates.convert(it.currentBalance, com.example.data.currency.AppCurrency.fromCode(it.currency), dispCurr) }
+    }
+    val totalBalancePay = remember(visibleAccounts, rates, payCurr) {
+        visibleAccounts.sumOf { rates.convert(it.currentBalance, com.example.data.currency.AppCurrency.fromCode(it.currency), payCurr) }
+    }
     val savingsAccounts = visibleAccounts.filter { it.isSavings || it.type == AccountType.SAVINGS.name }
-    val savingsTotal = savingsAccounts.sumOf { it.currentBalance }
+    val savingsTotal = remember(savingsAccounts, rates, dispCurr) {
+        savingsAccounts.sumOf { rates.convert(it.currentBalance, com.example.data.currency.AppCurrency.fromCode(it.currency), dispCurr) }
+    }
+    val savingsTotalPay = remember(savingsAccounts, rates, payCurr) {
+        savingsAccounts.sumOf { rates.convert(it.currentBalance, com.example.data.currency.AppCurrency.fromCode(it.currency), payCurr) }
+    }
     val extraTransactions = remember(transactions) {
         transactions.filter { it.commitmentId.isNullOrBlank() && it.type != TransactionType.TRANSFER.name }
     }
@@ -104,16 +119,24 @@ fun AccountsScreen(
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Text(
-                        text = "Patrimonio en Cuentas",
+                        text = "Patrimonio en Cuentas (${dispCurr.code})",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondaryDark
                     )
                     Text(
-                        text = formatCurrency(totalBalance),
+                        text = formatCurrency(totalBalance, dispCurr.symbol),
                         style = MaterialTheme.typography.displayMedium,
                         fontWeight = FontWeight.Bold,
                         color = EmeraldLight
                     )
+                    if (payCurr != dispCurr) {
+                        Text(
+                            text = "Equiv. pago (${payCurr.code}): ${formatCurrency(totalBalancePay, payCurr.symbol)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = TextSecondaryDark,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                     Spacer(modifier = Modifier.height(14.dp))
 
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -191,7 +214,17 @@ fun AccountsScreen(
                                 Text("Cuentas destinadas a reserva", style = MaterialTheme.typography.bodySmall, color = TextSecondaryDark, fontSize = 11.sp)
                             }
                         }
-                        Text(formatCurrency(savingsTotal), fontWeight = FontWeight.Bold, color = EmeraldLight, fontSize = 16.sp)
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(formatCurrency(savingsTotal, dispCurr.symbol), fontWeight = FontWeight.Bold, color = EmeraldLight, fontSize = 16.sp)
+                            if (payCurr != dispCurr) {
+                                Text(
+                                    text = "Pago: ${formatCurrency(savingsTotalPay, payCurr.symbol)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondaryDark,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -244,7 +277,10 @@ fun AccountsScreen(
                     },
                     onAddExpense = {
                         selectedTxAccountAndType = Pair(TransactionType.EXPENSE.name, acc.id)
-                    }
+                    },
+                    displayCurrency = dispCurr,
+                    paymentCurrency = payCurr,
+                    rates = rates
                 )
             }
         }
@@ -392,6 +428,9 @@ fun AccountsScreen(
             accounts = visibleAccounts,
             customExpenseCategories = settings.customExpenseCategories,
             customIncomeCategories = settings.customIncomeCategories,
+            rates = rates,
+            displayCurrency = dispCurr,
+            paymentCurrency = payCurr,
             onDismiss = { showTransferDialog = false },
             onSave = { tx -> viewModel.addTransaction(tx) },
             onCreateCategory = { name, isInc -> viewModel.addCustomCategory(name, isInc) }
@@ -405,6 +444,9 @@ fun AccountsScreen(
             accounts = accounts,
             customExpenseCategories = settings.customExpenseCategories,
             customIncomeCategories = settings.customIncomeCategories,
+            rates = rates,
+            displayCurrency = dispCurr,
+            paymentCurrency = payCurr,
             onDismiss = { selectedTxAccountAndType = null },
             onSave = { tx -> viewModel.addTransaction(tx) },
             onCreateCategory = { name, isInc -> viewModel.addCustomCategory(name, isInc) }
@@ -417,6 +459,9 @@ fun AccountsScreen(
             accounts = accounts,
             customExpenseCategories = settings.customExpenseCategories,
             customIncomeCategories = settings.customIncomeCategories,
+            rates = rates,
+            displayCurrency = dispCurr,
+            paymentCurrency = payCurr,
             onDismiss = { transactionToEdit = null },
             onSave = { updatedTx ->
                 viewModel.updateTransaction(oldTx, updatedTx)

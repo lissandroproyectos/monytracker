@@ -243,6 +243,15 @@ fun AddAccountDialog(
 
     // Periodic Income fields
     var hasPeriodicIncome by remember { mutableStateOf(accountToEdit?.hasPeriodicIncome ?: false) }
+    var periodicIncomeCurrency by remember {
+        mutableStateOf(
+            if (accountToEdit != null) AppCurrency.fromCode(accountToEdit.periodicIncomeCurrency)
+            else selectedCurrency
+        )
+    }
+    var periodicCurrencyCustomized by remember {
+        mutableStateOf(accountToEdit != null && accountToEdit.periodicIncomeCurrency != accountToEdit.currency)
+    }
     var periodicIncomeAmountText by remember {
         mutableStateOf(if (accountToEdit != null && accountToEdit.hasPeriodicIncome) String.format(Locale.US, "%.2f", accountToEdit.periodicIncomeAmount) else "")
     }
@@ -256,6 +265,7 @@ fun AddAccountDialog(
 
     var typeExpanded by remember { mutableStateOf(false) }
     var currExpanded by remember { mutableStateOf(false) }
+    var periodicCurrExpanded by remember { mutableStateOf(false) }
     var periodicFreqExpanded by remember { mutableStateOf(false) }
 
     Dialog(
@@ -368,6 +378,9 @@ fun AddAccountDialog(
                                         text = { Text("${curr.flagEmoji} ${curr.displayName}") },
                                         onClick = {
                                             selectedCurrency = curr
+                                            if (!periodicCurrencyCustomized) {
+                                                periodicIncomeCurrency = curr
+                                            }
                                             currExpanded = false
                                         }
                                     )
@@ -470,15 +483,51 @@ fun AddAccountDialog(
                                         singleLine = true
                                     )
 
-                                    OutlinedTextField(
-                                        value = periodicIncomeAmountText,
-                                        onValueChange = { periodicIncomeAmountText = it },
-                                        label = { Text("Monto periódico (${selectedCurrency.displayName})") },
-                                        prefix = { Text("${selectedCurrency.symbol} ") },
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                        modifier = Modifier.fillMaxWidth().testTag("periodic_income_amount_input"),
-                                        singleLine = true
-                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedTextField(
+                                            value = periodicIncomeAmountText,
+                                            onValueChange = { periodicIncomeAmountText = it },
+                                            label = { Text("Monto periódico (${periodicIncomeCurrency.symbol})") },
+                                            prefix = { Text("${periodicIncomeCurrency.symbol} ") },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                            modifier = Modifier.weight(1.25f).testTag("periodic_income_amount_input"),
+                                            singleLine = true
+                                        )
+
+                                        ExposedDropdownMenuBox(
+                                            expanded = periodicCurrExpanded,
+                                            onExpandedChange = { periodicCurrExpanded = it },
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            OutlinedTextField(
+                                                value = periodicIncomeCurrency.symbolWithCode,
+                                                onValueChange = {},
+                                                readOnly = true,
+                                                label = { Text("Moneda Ingreso") },
+                                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = periodicCurrExpanded) },
+                                                modifier = Modifier.menuAnchor().fillMaxWidth(),
+                                                singleLine = true
+                                            )
+                                            ExposedDropdownMenu(
+                                                expanded = periodicCurrExpanded,
+                                                onDismissRequest = { periodicCurrExpanded = false }
+                                            ) {
+                                                AppCurrency.entries.forEach { pCurr ->
+                                                    DropdownMenuItem(
+                                                        text = { Text("${pCurr.flagEmoji} ${pCurr.symbolWithCode}") },
+                                                        onClick = {
+                                                            periodicIncomeCurrency = pCurr
+                                                            periodicCurrencyCustomized = true
+                                                            periodicCurrExpanded = false
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
 
                                     ExposedDropdownMenuBox(
                                         expanded = periodicFreqExpanded,
@@ -621,7 +670,7 @@ fun AddAccountDialog(
                                                 isSavings = if (accountToEdit?.isPlanStartAccount == true) false else isSavings,
                                                 hasPeriodicIncome = if (accountToEdit?.isPlanStartAccount == true) false else hasPeriodicIncome,
                                                 periodicIncomeAmount = parsedPeriodicAmount,
-                                                periodicIncomeCurrency = selectedCurrency.name,
+                                                periodicIncomeCurrency = periodicIncomeCurrency.name,
                                                 periodicIncomeFrequency = periodicFreq,
                                                 periodicIncomeDayOfMonth = parsedDay.coerceIn(1, 31),
                                                 periodicIncomeDescription = periodicIncomeDesc.trim().ifBlank { "Sueldo" },
@@ -657,6 +706,9 @@ fun AddTransactionDialog(
     accounts: List<Account>,
     customExpenseCategories: List<String> = emptyList(),
     customIncomeCategories: List<String> = emptyList(),
+    rates: ExchangeRates = ExchangeRates(),
+    displayCurrency: AppCurrency = AppCurrency.USD_BCV,
+    paymentCurrency: AppCurrency = displayCurrency,
     onDismiss: () -> Unit,
     onSave: (Transaction) -> Unit,
     onDelete: ((Transaction) -> Unit)? = null,
@@ -1029,6 +1081,51 @@ fun AddTransactionDialog(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
+
+                val previewAmt = amountText.replace(",", ".").toDoubleOrNull() ?: 0.0
+                if (previewAmt > 0) {
+                    val targetAcc = accounts.find { it.id == targetAccountId }
+                    val originAcc = accounts.find { it.id == selectedAccountId }
+                    val originCurr = originAcc?.let { AppCurrency.fromCode(it.currency) }
+                    val targetCurr = targetAcc?.let { AppCurrency.fromCode(it.currency) }
+                    val dispEq = rates.convert(previewAmt, selectedCurrency, displayCurrency)
+                    val payEq = rates.convert(previewAmt, selectedCurrency, paymentCurrency)
+                    Surface(
+                        color = SlateBackground,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            if (originAcc != null && originCurr != null && originCurr != selectedCurrency) {
+                                val originEq = rates.convert(previewAmt, selectedCurrency, originCurr)
+                                Text(
+                                    text = "Impacto en ${originAcc.name}: ${if (type == TransactionType.INCOME.name) "+" else "-"}${formatCurrency(originEq, originCurr.symbol)} (${originCurr.code})",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = EmeraldLight
+                                )
+                            }
+                            if (type == TransactionType.TRANSFER.name && targetAcc != null && targetCurr != null && targetCurr != selectedCurrency) {
+                                val targetEq = rates.convert(previewAmt, selectedCurrency, targetCurr)
+                                Text(
+                                    text = "Acreditado en ${targetAcc.name}: +${formatCurrency(targetEq, targetCurr.symbol)} (${targetCurr.code})",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AccentAmber
+                                )
+                            }
+                            if (selectedCurrency != displayCurrency || paymentCurrency != displayCurrency) {
+                                val payPart = if (paymentCurrency != displayCurrency) " • Pago (${paymentCurrency.code}): ${formatCurrency(payEq, paymentCurrency.symbol)}" else ""
+                                Text(
+                                    text = "Equivalente general (${displayCurrency.code}): ${formatCurrency(dispEq, displayCurrency.symbol)}$payPart",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondaryDark,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(4.dp))
 
@@ -3401,6 +3498,9 @@ fun AddCommitmentDialog(
 fun PayCommitmentDialog(
     commitment: ExpenseCommitment,
     accounts: List<Account>,
+    rates: ExchangeRates = ExchangeRates(),
+    displayCurrency: AppCurrency = AppCurrency.USD_BCV,
+    paymentCurrency: AppCurrency = displayCurrency,
     onDismiss: () -> Unit,
     onConfirm: (InstallmentPayment, Account?) -> Unit
 ) {
@@ -3604,6 +3704,30 @@ fun PayCommitmentDialog(
                         singleLine = true
                     )
 
+                    if (amount > 0) {
+                        val accCurr = selectedAccount?.let { AppCurrency.fromCode(it.currency) }
+                        if (selectedAccount != null && accCurr != null && accCurr != commCurrency) {
+                            val debitedInAcc = rates.convert(amount, commCurrency, accCurr)
+                            Text(
+                                text = "Se debitará de ${selectedAccount.name}: ${formatCurrency(debitedInAcc, accCurr.symbol)} (${accCurr.code})",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = EmeraldLight
+                            )
+                        }
+                        if (commCurrency != displayCurrency || paymentCurrency != displayCurrency) {
+                            val dispEq = rates.convert(amount, commCurrency, displayCurrency)
+                            val payEq = rates.convert(amount, commCurrency, paymentCurrency)
+                            val payPart = if (paymentCurrency != displayCurrency) " • Pago (${paymentCurrency.code}): ${formatCurrency(payEq, paymentCurrency.symbol)}" else ""
+                            Text(
+                                text = "Equiv. ver (${displayCurrency.code}): ${formatCurrency(dispEq, displayCurrency.symbol)}$payPart",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondaryDark,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+
                     OutlinedTextField(
                         value = notes,
                         onValueChange = { notes = it },
@@ -3779,6 +3903,9 @@ fun ConfirmPaymentDialog(
     initialAccountId: String? = null,
     initialPaidDate: Date? = null,
     initialNotes: String = "",
+    rates: ExchangeRates = ExchangeRates(),
+    displayCurrency: AppCurrency = AppCurrency.USD_BCV,
+    paymentCurrency: AppCurrency = displayCurrency,
     onDismiss: () -> Unit,
     onConfirm: (account: Account?, paidDate: Date, amount: Double, notes: String) -> Unit
 ) {
@@ -3996,6 +4123,32 @@ fun ConfirmPaymentDialog(
                         singleLine = true
                     )
 
+                    val previewAmt = amountText.replace(",", ".").toDoubleOrNull() ?: 0.0
+                    val chosenAcc = payAccounts.find { it.id == selectedAccountId }
+                    if (previewAmt > 0) {
+                        val accCurr = chosenAcc?.let { AppCurrency.fromCode(it.currency) }
+                        if (chosenAcc != null && accCurr != null && accCurr != currency) {
+                            val accAmt = rates.convert(previewAmt, currency, accCurr)
+                            Text(
+                                text = "${if (isIncome) "Se acreditará" else "Se debitará"} en ${chosenAcc.name}: ${formatCurrency(accAmt, accCurr.symbol)} (${accCurr.code})",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = EmeraldLight
+                            )
+                        }
+                        if (currency != displayCurrency || paymentCurrency != displayCurrency) {
+                            val dispEq = rates.convert(previewAmt, currency, displayCurrency)
+                            val payEq = rates.convert(previewAmt, currency, paymentCurrency)
+                            val payPart = if (paymentCurrency != displayCurrency) " • Pago (${paymentCurrency.code}): ${formatCurrency(payEq, paymentCurrency.symbol)}" else ""
+                            Text(
+                                text = "Equiv. ver (${displayCurrency.code}): ${formatCurrency(dispEq, displayCurrency.symbol)}$payPart",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondaryDark,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+
                     // Optional Notes
                     OutlinedTextField(
                         value = notes,
@@ -4046,6 +4199,7 @@ fun ConfirmPaymentDialog(
 fun EventDetailDialog(
     event: PlannedEvent,
     displayCurrency: AppCurrency,
+    paymentCurrency: AppCurrency = displayCurrency,
     rates: ExchangeRates,
     accounts: List<Account>,
     transactions: List<Transaction>,
@@ -4057,6 +4211,7 @@ fun EventDetailDialog(
     val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()) }
     val currency = event.currency
     val amountInDisp = rates.convert(event.amount, event.currency, displayCurrency)
+    val amountInPay = rates.convert(event.amount, event.currency, paymentCurrency)
 
     // Find linked transaction if paid
     val matchedTx = remember(event, transactions) {
@@ -4194,9 +4349,17 @@ fun EventDetailDialog(
                                     )
                                     if (currency != displayCurrency) {
                                         Text(
-                                            text = "≈ ${formatCurrency(amountInDisp, displayCurrency.symbol)} ($displayCurrency)",
+                                            text = "≈ ${formatCurrency(amountInDisp, displayCurrency.symbol)} (${displayCurrency.code})",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = TextSecondaryDark
+                                        )
+                                    }
+                                    if (paymentCurrency != displayCurrency && paymentCurrency != currency) {
+                                        Text(
+                                            text = "Pago (${paymentCurrency.code}): ${formatCurrency(amountInPay, paymentCurrency.symbol)}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = EmeraldLight.copy(alpha = 0.85f),
+                                            fontSize = 11.sp
                                         )
                                     }
                                 }
@@ -4278,6 +4441,22 @@ fun EventDetailDialog(
                                     "🌐 Dinero Externo (Sin salida de cuentas)"
                                 }
                                 Text(accLabel, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = TextPrimaryDark)
+                            }
+
+                            if (matchedTx?.accountDelta != null && matchedTx.accountCurrency != null && matchedTx.accountCurrency != event.currency.name) {
+                                val accCurr = AppCurrency.fromCode(matchedTx.accountCurrency)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Monto en moneda de la cuenta:", style = MaterialTheme.typography.bodyMedium, color = TextSecondaryDark)
+                                    Text(
+                                        text = "${formatCurrency(matchedTx.accountDelta, accCurr.symbol)} (${accCurr.code})",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = EmeraldLight
+                                    )
+                                }
                             }
 
                             if (matchedTx?.notes?.isNotBlank() == true) {
@@ -4367,6 +4546,7 @@ fun EventDetailDialog(
 fun TransferSurplusDialog(
     suggestedAmount: Double,
     displayCurrency: AppCurrency,
+    paymentCurrency: AppCurrency = displayCurrency,
     operatingAccounts: List<Account>,
     savingsAccounts: List<Account>,
     rates: ExchangeRates,
@@ -4489,6 +4669,24 @@ fun TransferSurplusDialog(
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
+
+                    val previewSurplus = amountText.replace(",", ".").toDoubleOrNull() ?: 0.0
+                    val previewFrom = validOperatingAccounts.find { it.id == selectedFromAccountId }
+                    val previewTo = openSavingsAccounts.find { it.id == selectedToAccountId }
+                    if (previewSurplus > 0 && previewFrom != null) {
+                        val fromCurr = AppCurrency.fromCode(previewFrom.currency)
+                        val fromAmt = rates.convert(previewSurplus, displayCurrency, fromCurr)
+                        val toCurr = AppCurrency.fromCode(previewTo?.currency ?: previewFrom.currency)
+                        val toAmt = rates.convert(previewSurplus, displayCurrency, toCurr)
+                        val payAmt = rates.convert(previewSurplus, displayCurrency, paymentCurrency)
+                        val payPart = if (paymentCurrency != displayCurrency) " • Pago (${paymentCurrency.code}): ${formatCurrency(payAmt, paymentCurrency.symbol)}" else ""
+                        Text(
+                            text = "Debita en ${previewFrom.name}: ${formatCurrency(fromAmt, fromCurr.symbol)} (${fromCurr.code}) → Acredita en ahorro: ${formatCurrency(toAmt, toCurr.symbol)} (${toCurr.code})$payPart",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = EmeraldLight,
+                            fontSize = 10.sp
+                        )
+                    }
 
                     // Origin Operating Account Dropdown
                     ExposedDropdownMenuBox(

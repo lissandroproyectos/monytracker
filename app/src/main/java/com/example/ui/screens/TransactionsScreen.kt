@@ -72,6 +72,10 @@ fun TransactionsScreen(
     val transactions by viewModel.transactions.collectAsStateWithLifecycle()
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val health by viewModel.financialHealth.collectAsStateWithLifecycle()
+    val rates by viewModel.exchangeRates.collectAsStateWithLifecycle()
+    val dispCurr = health.displayCurrency
+    val payCurr = health.paymentCurrency
 
     var filterType by remember { mutableStateOf("ALL") }
     var searchQuery by remember { mutableStateOf("") }
@@ -95,8 +99,22 @@ fun TransactionsScreen(
         }
     }
 
-    val totalIncome = transactions.filter { it.type == TransactionType.INCOME.name }.sumOf { it.amount }
-    val totalExpense = transactions.filter { it.type == TransactionType.EXPENSE.name }.sumOf { it.amount }
+    val totalIncome = remember(transactions, rates, dispCurr) {
+        transactions.filter { it.type == TransactionType.INCOME.name }
+            .sumOf { rates.convert(it.amount, com.example.data.currency.AppCurrency.fromCode(it.currency), dispCurr) }
+    }
+    val totalIncomePay = remember(transactions, rates, payCurr) {
+        transactions.filter { it.type == TransactionType.INCOME.name }
+            .sumOf { rates.convert(it.amount, com.example.data.currency.AppCurrency.fromCode(it.currency), payCurr) }
+    }
+    val totalExpense = remember(transactions, rates, dispCurr) {
+        transactions.filter { it.type == TransactionType.EXPENSE.name }
+            .sumOf { rates.convert(it.amount, com.example.data.currency.AppCurrency.fromCode(it.currency), dispCurr) }
+    }
+    val totalExpensePay = remember(transactions, rates, payCurr) {
+        transactions.filter { it.type == TransactionType.EXPENSE.name }
+            .sumOf { rates.convert(it.amount, com.example.data.currency.AppCurrency.fromCode(it.currency), payCurr) }
+    }
     val extraCount = transactions.count { it.commitmentId.isNullOrBlank() && it.type != TransactionType.TRANSFER.name }
 
     Scaffold(
@@ -172,7 +190,10 @@ fun TransactionsScreen(
                                 Text("Total Ingresos", style = MaterialTheme.typography.labelSmall, color = TextSecondaryDark)
                             }
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text(formatCurrency(totalIncome), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = EmeraldLight)
+                            Text(formatCurrency(totalIncome, dispCurr.symbol), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = EmeraldLight)
+                            if (payCurr != dispCurr) {
+                                Text("Pago: ${formatCurrency(totalIncomePay, payCurr.symbol)}", style = MaterialTheme.typography.labelSmall, color = TextSecondaryDark, fontSize = 10.sp)
+                            }
                         }
                     }
 
@@ -188,7 +209,10 @@ fun TransactionsScreen(
                                 Text("Total Egresos", style = MaterialTheme.typography.labelSmall, color = TextSecondaryDark)
                             }
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text(formatCurrency(totalExpense), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = AccentRed)
+                            Text(formatCurrency(totalExpense, dispCurr.symbol), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = AccentRed)
+                            if (payCurr != dispCurr) {
+                                Text("Pago: ${formatCurrency(totalExpensePay, payCurr.symbol)}", style = MaterialTheme.typography.labelSmall, color = TextSecondaryDark, fontSize = 10.sp)
+                            }
                         }
                     }
                 }
@@ -268,7 +292,10 @@ fun TransactionsScreen(
                         accountName = accName,
                         onClick = { transactionToEdit = tx },
                         onEdit = { transactionToEdit = tx },
-                        onDelete = { transactionToDelete = tx }
+                        onDelete = { transactionToDelete = tx },
+                        displayCurrency = dispCurr,
+                        paymentCurrency = payCurr,
+                        rates = rates
                     )
                 }
             }
@@ -285,6 +312,9 @@ fun TransactionsScreen(
             accounts = accounts,
             customExpenseCategories = settings.customExpenseCategories,
             customIncomeCategories = settings.customIncomeCategories,
+            rates = rates,
+            displayCurrency = dispCurr,
+            paymentCurrency = payCurr,
             onDismiss = { showAddDialog = false },
             onSave = { tx -> viewModel.addTransaction(tx) },
             onCreateCategory = { name, isInc -> viewModel.addCustomCategory(name, isInc) }
@@ -297,6 +327,9 @@ fun TransactionsScreen(
             accounts = accounts,
             customExpenseCategories = settings.customExpenseCategories,
             customIncomeCategories = settings.customIncomeCategories,
+            rates = rates,
+            displayCurrency = dispCurr,
+            paymentCurrency = payCurr,
             onDismiss = { transactionToEdit = null },
             onSave = { updatedTx ->
                 viewModel.updateTransaction(oldTx, updatedTx)

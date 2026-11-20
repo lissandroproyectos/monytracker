@@ -31,15 +31,20 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import com.example.ui.screens.PlannedEvent
 
 data class FinancialHealth(
     val totalAvailableInDisplay: Double = 0.0,
+    val totalAvailableInPayment: Double = 0.0,
     val totalSavingsInDisplay: Double = 0.0,
+    val totalSavingsInPayment: Double = 0.0,
     val totalFixedExpensesInDisplay: Double = 0.0,
+    val totalFixedExpensesInPayment: Double = 0.0,
     val totalDebtsInDisplay: Double = 0.0,
+    val totalDebtsInPayment: Double = 0.0,
     val safetyCushionAmount: Double = 150.0,
     val isSafetyCushionBreached: Boolean = false,
     val surplusAvailableForSavings: Double = 0.0,
@@ -126,9 +131,15 @@ class FinanceViewModel(
         val totalAvailable = liquidAccounts.sumOf { acc ->
             rates.convert(acc.currentBalance, AppCurrency.fromCode(acc.currency), dispCurr)
         }
+        val totalAvailablePay = liquidAccounts.sumOf { acc ->
+            rates.convert(acc.currentBalance, AppCurrency.fromCode(acc.currency), payCurr)
+        }
 
         val totalSavings = savingsAccounts.sumOf { acc ->
             rates.convert(acc.currentBalance, AppCurrency.fromCode(acc.currency), dispCurr)
+        }
+        val totalSavingsPay = savingsAccounts.sumOf { acc ->
+            rates.convert(acc.currentBalance, AppCurrency.fromCode(acc.currency), payCurr)
         }
 
         val activeComms = comms.filter { it.status == CommitmentStatus.ACTIVE.name }
@@ -138,9 +149,16 @@ class FinanceViewModel(
             val recurringAmt = if (c.installmentAmount > 0) c.installmentAmount else (if (c.totalInstallments > 0) c.totalAmount / c.totalInstallments else c.totalAmount)
             rates.convert(recurringAmt, AppCurrency.fromCode(c.currency), dispCurr)
         }
+        val fixedExpensesPay = activeComms.filter { it.isFixedExpense }.sumOf { c ->
+            val recurringAmt = if (c.installmentAmount > 0) c.installmentAmount else (if (c.totalInstallments > 0) c.totalAmount / c.totalInstallments else c.totalAmount)
+            rates.convert(recurringAmt, AppCurrency.fromCode(c.currency), payCurr)
+        }
 
         val temporaryDebts = activeComms.filter { !it.isFixedExpense }.sumOf { c ->
             rates.convert(c.remainingAmount, AppCurrency.fromCode(c.currency), dispCurr)
+        }
+        val temporaryDebtsPay = activeComms.filter { !it.isFixedExpense }.sumOf { c ->
+            rates.convert(c.remainingAmount, AppCurrency.fromCode(c.currency), payCurr)
         }
 
         val cushion = userSettings.safetyCushionAmount
@@ -148,10 +166,14 @@ class FinanceViewModel(
         val surplus = (totalAvailable - (cushion + temporaryDebts + fixedExpenses)).coerceAtLeast(0.0)
 
         FinancialHealth(
-            totalAvailableInDisplay = totalAvailable,
-            totalSavingsInDisplay = totalSavings,
-            totalFixedExpensesInDisplay = fixedExpenses,
-            totalDebtsInDisplay = temporaryDebts,
+            totalAvailableInDisplay = kotlin.math.round(totalAvailable * 100.0) / 100.0,
+            totalAvailableInPayment = kotlin.math.round(totalAvailablePay * 100.0) / 100.0,
+            totalSavingsInDisplay = kotlin.math.round(totalSavings * 100.0) / 100.0,
+            totalSavingsInPayment = kotlin.math.round(totalSavingsPay * 100.0) / 100.0,
+            totalFixedExpensesInDisplay = kotlin.math.round(fixedExpenses * 100.0) / 100.0,
+            totalFixedExpensesInPayment = kotlin.math.round(fixedExpensesPay * 100.0) / 100.0,
+            totalDebtsInDisplay = kotlin.math.round(temporaryDebts * 100.0) / 100.0,
+            totalDebtsInPayment = kotlin.math.round(temporaryDebtsPay * 100.0) / 100.0,
             safetyCushionAmount = cushion,
             isSafetyCushionBreached = isBreached,
             surplusAvailableForSavings = surplus,
@@ -160,40 +182,68 @@ class FinanceViewModel(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), FinancialHealth())
 
-    // Projected cashflow points for graph across chosen range
+    // Projected cashflow points for graph across chosen range (operating general pot)
     val projectedCashflow: StateFlow<List<CashflowPoint>> = combine(
-        financialHealth,
-        commitments,
-        accounts,
+        combine(financialHealth, commitments, accounts, transactions) { health, comms, accs, txs ->
+            listOf(health, comms, accs, txs)
+        },
         projectionMonths,
         exchangeRates
-    ) { health, comms, accs, months, rates ->
-        val points = mutableListOf<CashflowPoint>()
-        var runningBalance = health.totalAvailableInDisplay
-        val cal = Calendar.getInstance()
-        val now = cal.time
+    ) { baseData, months, rates ->
+        @Suppress("UNCHECKED_CAST")
+        val health = baseData[0] as FinancialHealth
+        @Suppress("UNCHECKED_CAST")
+        val comms = baseData[1] as List<ExpenseCommitment>
+        @Suppress("UNCHECKED_CAST")
+        val accs = baseData[2] as List<Account>
+        @Suppress("UNCHECKED_CAST")
+        val txs = baseData[3] as List<Transaction>
 
-        // Point 0: today
+        val points = mutableListOf<CashflowPoint>()
+        var runningBalance = kotlin.math.round(health.totalAvailableInDisplay * 100.0) / 100.0
+        val now = Date()
+        val todayStart = Calendar.getInstance().apply {
+            time = now
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.time
+
+        fun isSameCalDay(d1: Date, d2: Date): Boolean {
+            val c1 = Calendar.getInstance().apply { time = d1 }
+            val c2 = Calendar.getInstance().apply { time = d2 }
+            return c1.get(Calendar.YEAR) == c2.get(Calendar.YEAR) &&
+                c1.get(Calendar.DAY_OF_YEAR) == c2.get(Calendar.DAY_OF_YEAR)
+        }
+
+        // Point 0: today (sum of all active non-savings accounts = Pote General)
         points.add(
             CashflowPoint(
                 date = now,
                 label = "Hoy",
                 projectedBalance = runningBalance,
                 change = 0.0,
-                description = "Saldo actual disponible"
+                description = "Pote general disponible"
             )
         )
 
         // Project upcoming installments across the target months
-        val endCal = Calendar.getInstance().apply { add(Calendar.MONTH, months) }
+        val endCal = Calendar.getInstance().apply {
+            add(Calendar.MONTH, months)
+            set(Calendar.HOUR_OF_DAY, 23)
+            set(Calendar.MINUTE, 59)
+            set(Calendar.SECOND, 59)
+            set(Calendar.MILLISECOND, 999)
+        }
         val allEvents = mutableListOf<Pair<Date, Triple<Double, String, String>>>()
 
-        // 1. Debt and Expense commitments
+        // 1. Debt and Expense commitments (only unpaid installments from today forward)
         comms.filter { it.status == CommitmentStatus.ACTIVE.name }.forEach { c ->
             val commCurrency = AppCurrency.fromCode(c.currency)
             c.getProjectedInstallments().filter { !it.isPaid }.forEach { inst ->
                 val instDate = inst.dueDate.toDate()
-                if (instDate.after(now) && instDate.before(endCal.time)) {
+                if (!instDate.before(todayStart) && !instDate.after(endCal.time)) {
                     val amountInDisp = rates.convert(inst.amount, commCurrency, health.displayCurrency)
                     allEvents.add(
                         instDate to Triple(
@@ -206,36 +256,43 @@ class FinanceViewModel(
             }
         }
 
-        // 2. Periodic Incomes configured on Accounts
+        // 2. Periodic Incomes configured on Accounts (skip if already recorded as INCOME tx on that day)
         accs.filter { !it.isClosed && it.hasPeriodicIncome && it.periodicIncomeAmount > 0 }.forEach { acc ->
             val incCurrency = AppCurrency.fromCode(acc.periodicIncomeCurrency)
             val incAmountDisp = rates.convert(acc.periodicIncomeAmount, incCurrency, health.displayCurrency)
+            val incomeDesc = acc.periodicIncomeDescription.ifBlank { "Ingreso" }
 
-            val stepCal = Calendar.getInstance()
-            while (stepCal.before(endCal)) {
+            fun isAlreadyCollectedOn(targetDate: Date): Boolean = txs.any { tx ->
+                tx.type == TransactionType.INCOME.name &&
+                    (tx.accountId == acc.id || tx.description.contains(acc.name) || tx.description.contains(incomeDesc)) &&
+                    isSameCalDay(tx.date.toDate(), targetDate)
+            }
+
+            val stepCal = Calendar.getInstance().apply { time = todayStart }
+            while (!stepCal.after(endCal)) {
                 when (acc.periodicIncomeFrequency) {
                     "QUINCENAL" -> {
                         val d15 = (stepCal.clone() as Calendar).apply { set(Calendar.DAY_OF_MONTH, 15) }
-                        if (d15.time.after(now) && d15.before(endCal)) {
-                            allEvents.add(d15.time to Triple(incAmountDisp, "${acc.periodicIncomeDescription} (${acc.name})", "Ingreso Periódico"))
+                        if (!d15.time.before(todayStart) && !d15.after(endCal) && !isAlreadyCollectedOn(d15.time)) {
+                            allEvents.add(d15.time to Triple(incAmountDisp, "$incomeDesc (${acc.name})", "Ingreso Periódico"))
                         }
                         val dEnd = (stepCal.clone() as Calendar).apply { set(Calendar.DAY_OF_MONTH, getActualMaximum(Calendar.DAY_OF_MONTH)) }
-                        if (dEnd.time.after(now) && dEnd.before(endCal)) {
-                            allEvents.add(dEnd.time to Triple(incAmountDisp, "${acc.periodicIncomeDescription} (${acc.name})", "Ingreso Periódico"))
+                        if (!dEnd.time.before(todayStart) && !dEnd.after(endCal) && !isAlreadyCollectedOn(dEnd.time)) {
+                            allEvents.add(dEnd.time to Triple(incAmountDisp, "$incomeDesc (${acc.name})", "Ingreso Periódico"))
                         }
                         stepCal.add(Calendar.MONTH, 1)
                     }
                     "SEMANAL" -> {
-                        stepCal.add(Calendar.DAY_OF_YEAR, 7)
-                        if (stepCal.time.after(now) && stepCal.before(endCal)) {
-                            allEvents.add(stepCal.time to Triple(incAmountDisp, "${acc.periodicIncomeDescription} (${acc.name})", "Ingreso Periódico"))
+                        if (!stepCal.time.before(todayStart) && !stepCal.after(endCal) && !isAlreadyCollectedOn(stepCal.time)) {
+                            allEvents.add(stepCal.time to Triple(incAmountDisp, "$incomeDesc (${acc.name})", "Ingreso Periódico"))
                         }
+                        stepCal.add(Calendar.DAY_OF_YEAR, 7)
                     }
                     else -> { // MENSUAL
                         val targetDay = acc.periodicIncomeDayOfMonth.coerceIn(1, stepCal.getActualMaximum(Calendar.DAY_OF_MONTH))
                         val dMonth = (stepCal.clone() as Calendar).apply { set(Calendar.DAY_OF_MONTH, targetDay) }
-                        if (dMonth.time.after(now) && dMonth.before(endCal)) {
-                            allEvents.add(dMonth.time to Triple(incAmountDisp, "${acc.periodicIncomeDescription} (${acc.name})", "Ingreso Periódico"))
+                        if (!dMonth.time.before(todayStart) && !dMonth.after(endCal) && !isAlreadyCollectedOn(dMonth.time)) {
+                            allEvents.add(dMonth.time to Triple(incAmountDisp, "$incomeDesc (${acc.name})", "Ingreso Periódico"))
                         }
                         stepCal.add(Calendar.MONTH, 1)
                     }
@@ -243,14 +300,17 @@ class FinanceViewModel(
             }
         }
 
-        allEvents.sortBy { it.first }
+        allEvents.sortWith(
+            compareBy<Pair<Date, Triple<Double, String, String>>> { it.first.time }
+                .thenBy { if (it.second.third == "Ingreso Periódico") 1 else 0 }
+        )
 
+        val sdf = SimpleDateFormat("dd MMM", Locale.forLanguageTag("es-ES"))
         allEvents.forEach { (date, info) ->
             val (amount, title, type) = info
             val isIncome = type == "Ingreso Periódico"
             val delta = if (isIncome) amount else -amount
-            runningBalance += delta
-            val sdf = java.text.SimpleDateFormat("dd MMM", java.util.Locale.forLanguageTag("es-ES"))
+            runningBalance = kotlin.math.round((runningBalance + delta) * 100.0) / 100.0
             points.add(
                 CashflowPoint(
                     date = date,
@@ -503,8 +563,8 @@ class FinanceViewModel(
     fun deleteTransaction(transaction: Transaction) {
         viewModelScope.launch {
             try {
-                repository.deleteTransaction(currentUserId, transaction)
-                _userMessage.value = UiMessage.Success("Movimiento eliminado y saldo restaurado")
+                repository.deleteTransaction(currentUserId, transaction, exchangeRates.value)
+                _userMessage.value = UiMessage.Success("Movimiento eliminado y saldo restaurado en su moneda origen")
             } catch (e: Exception) {
                 _errorMessage.value = "Error al eliminar movimiento: ${e.localizedMessage}"
             }
@@ -591,7 +651,8 @@ class FinanceViewModel(
         installmentNumber: Long,
         markAsPaid: Boolean,
         payFromAccount: Account?,
-        paidDate: Date? = null
+        paidDate: Date? = null,
+        paidAmount: Double? = null
     ) {
         viewModelScope.launch {
             try {
@@ -608,10 +669,13 @@ class FinanceViewModel(
                     markAsPaid,
                     payFromAccount,
                     exchangeRates.value,
-                    paidDate
+                    paidDate,
+                    paidAmount
                 )
-                val statusText = if (markAsPaid) "marcada como pagada" else "marcada como pendiente"
-                val accText = payFromAccount?.let { " (${it.name})" } ?: " (dinero externo)"
+                val statusText = if (markAsPaid) "marcada como pagada" else "marcada como pendiente (dinero devuelto en moneda origen)"
+                val accText = if (markAsPaid) {
+                    payFromAccount?.let { " (${it.name})" } ?: " (dinero externo)"
+                } else ""
                 _userMessage.value = UiMessage.Success("Cuota #$installmentNumber $statusText$accText")
 
                 if (isPaidOff) {
@@ -671,7 +735,7 @@ class FinanceViewModel(
                 }
 
                 if (oldTx != null) {
-                    repository.deleteTransaction(currentUserId, oldTx)
+                    repository.deleteTransaction(currentUserId, oldTx, exchangeRates.value)
                 }
 
                 // 2. Register updated payment/income
@@ -762,7 +826,8 @@ class FinanceViewModel(
         fromAccount: Account,
         toAccount: Account,
         amount: Double,
-        notes: String? = null
+        notes: String? = null,
+        amountCurrency: AppCurrency = AppCurrency.fromCode(fromAccount.currency)
     ) {
         viewModelScope.launch {
             try {
@@ -780,14 +845,13 @@ class FinanceViewModel(
                     targetAccountId = actualToAccount.id,
                     type = "TRANSFER",
                     amount = roundedAmount,
-                    currency = fromAccount.currency,
+                    currency = amountCurrency.name,
                     description = notes?.ifBlank { null }
                         ?: if (actualToAccount.isSavings) "Reserva a Fondo de Ahorro / Colchón" else "Retiro de emergencia desde Ahorros",
                     date = Timestamp.now()
                 )
                 repository.addTransaction(currentUserId, tx, exchangeRates.value)
-                val curr = AppCurrency.fromCode(fromAccount.currency)
-                _userMessage.value = UiMessage.Success("Transferidos ${formatCurrency(roundedAmount, curr.symbol)} de ${fromAccount.name} a ${actualToAccount.name}")
+                _userMessage.value = UiMessage.Success("Transferidos ${formatCurrency(roundedAmount, amountCurrency.symbol)} de ${fromAccount.name} (${fromAccount.currency}) a ${actualToAccount.name} (${actualToAccount.currency})")
             } catch (e: Exception) {
                 _errorMessage.value = "Error en transferencia: ${e.localizedMessage}"
             }

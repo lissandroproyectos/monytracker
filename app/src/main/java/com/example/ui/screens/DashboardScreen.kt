@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.currency.AppCurrency
+import com.example.data.currency.ExchangeRates
 import com.example.data.model.Account
 import com.example.data.model.ExpenseCommitment
 import com.example.data.model.Transaction
@@ -145,6 +146,10 @@ fun DashboardScreen(
                 totalFixedExpenses = health.totalFixedExpensesInDisplay,
                 totalDebts = health.totalDebtsInDisplay,
                 currencySymbol = health.displayCurrency.symbol,
+                liquidAccountsCount = visibleAccounts.count { !it.isSavings },
+                totalBalanceInPayment = health.totalAvailableInPayment,
+                displayCurrency = health.displayCurrency,
+                paymentCurrency = health.paymentCurrency,
                 onNewIncomeClick = onNewIncome,
                 onNewExpenseClick = onNewExpense,
                 onNewCommitmentClick = onNewCommitment
@@ -157,7 +162,10 @@ fun DashboardScreen(
                 points = projectedPoints,
                 selectedPeriodMonths = projectionMonths,
                 onPeriodSelected = { viewModel.setProjectionPeriodMonths(it) },
-                currencySymbol = health.displayCurrency.symbol
+                currencySymbol = health.displayCurrency.symbol,
+                displayCurrency = health.displayCurrency,
+                paymentCurrency = health.paymentCurrency,
+                rates = rates
             )
         }
 
@@ -232,7 +240,12 @@ fun DashboardScreen(
 
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(visibleAccounts, key = { it.id }) { acc ->
-                        AccountMiniCard(account = acc, onClick = onNavigateToAccounts)
+                        AccountMiniCard(
+                            account = acc,
+                            displayCurrency = health.displayCurrency,
+                            rates = rates,
+                            onClick = onNavigateToAccounts
+                        )
                     }
                 }
             }
@@ -330,7 +343,10 @@ fun DashboardScreen(
                     accountName = accName,
                     onClick = { transactionToEdit = tx },
                     onEdit = { transactionToEdit = tx },
-                    onDelete = { transactionToDelete = tx }
+                    onDelete = { transactionToDelete = tx },
+                    displayCurrency = health.displayCurrency,
+                    paymentCurrency = health.paymentCurrency,
+                    rates = rates
                 )
             }
         }
@@ -346,6 +362,9 @@ fun DashboardScreen(
             accounts = accounts,
             customExpenseCategories = settings.customExpenseCategories,
             customIncomeCategories = settings.customIncomeCategories,
+            rates = rates,
+            displayCurrency = health.displayCurrency,
+            paymentCurrency = health.paymentCurrency,
             onDismiss = { transactionToEdit = null },
             onSave = { updatedTx ->
                 viewModel.updateTransaction(oldTx, updatedTx)
@@ -393,6 +412,8 @@ fun DashboardScreen(
 @Composable
 fun AccountMiniCard(
     account: Account,
+    displayCurrency: AppCurrency = AppCurrency.USD_BCV,
+    rates: ExchangeRates = ExchangeRates(),
     onClick: () -> Unit
 ) {
     val accCurrency = AppCurrency.fromCode(account.currency)
@@ -445,6 +466,15 @@ fun AccountMiniCard(
                 color = if (account.currentBalance >= 0) EmeraldLight else Color(0xFFEF4444),
                 fontSize = 13.sp
             )
+            if (accCurrency != displayCurrency) {
+                val eq = rates.convert(account.currentBalance, accCurrency, displayCurrency)
+                Text(
+                    text = "≈ ${formatCurrency(eq, displayCurrency.symbol)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondaryDark,
+                    fontSize = 10.sp
+                )
+            }
         }
     }
 }

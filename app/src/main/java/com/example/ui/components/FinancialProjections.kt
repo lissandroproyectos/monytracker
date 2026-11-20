@@ -100,6 +100,9 @@ fun CashflowProjectionCard(
     selectedPeriodMonths: Int,
     onPeriodSelected: (Int) -> Unit,
     currencySymbol: String,
+    displayCurrency: AppCurrency = AppCurrency.USD_BCV,
+    paymentCurrency: AppCurrency = displayCurrency,
+    rates: ExchangeRates = ExchangeRates(),
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -244,21 +247,58 @@ fun CashflowProjectionCard(
 
                 // Trajectory points preview
                 val endPoint = points.lastOrNull()
+                val firstDeficit = points.firstOrNull { it.projectedBalance < -0.001 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Saldo Proyectado al final del plan (${endPoint?.label ?: ""}):",
+                        text = "Pote proyectado al final (${endPoint?.label ?: ""}):",
                         style = MaterialTheme.typography.labelSmall,
                         color = TextSecondaryDark
                     )
-                    Text(
-                        text = formatCurrency(endPoint?.projectedBalance ?: 0.0, currencySymbol),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if ((endPoint?.projectedBalance ?: 0.0) >= 0) EmeraldLight else AccentRed
-                    )
+                    Column(horizontalAlignment = Alignment.End) {
+                        val endDisp = endPoint?.projectedBalance ?: 0.0
+                        Text(
+                            text = formatCurrency(endDisp, currencySymbol),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (endDisp >= 0) EmeraldLight else AccentRed
+                        )
+                        if (paymentCurrency != displayCurrency) {
+                            val endPay = rates.convert(endDisp, displayCurrency, paymentCurrency)
+                            Text(
+                                text = "Pago (${paymentCurrency.code}): ${formatCurrency(endPay, paymentCurrency.symbol)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondaryDark,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+                }
+
+                if (firstDeficit != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = AccentRed.copy(alpha = 0.14f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("cashflow_deficit_banner")
+                    ) {
+                        val paySuffix = if (paymentCurrency != displayCurrency) {
+                            val payDef = rates.convert(firstDeficit.projectedBalance, displayCurrency, paymentCurrency)
+                            " (${formatCurrency(payDef, paymentCurrency.symbol)} ${paymentCurrency.code})"
+                        } else ""
+                        Text(
+                            text = "⚠️ El pote queda insuficiente desde ${firstDeficit.label} (${firstDeficit.description}): saldo proyectado ${formatCurrency(firstDeficit.projectedBalance, currencySymbol)}$paySuffix.",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = AccentRed,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                        )
+                    }
                 }
             } else {
                 Text(
@@ -279,8 +319,9 @@ fun InstallmentsScheduleDialog(
     accounts: List<Account>,
     rates: ExchangeRates,
     displayCurrency: AppCurrency,
+    paymentCurrency: AppCurrency = displayCurrency,
     onDismiss: () -> Unit,
-    onToggleInstallment: (Long, Boolean, Account?, Date?) -> Unit,
+    onToggleInstallment: (Long, Boolean, Account?, Date?, Double?) -> Unit,
     onEdit: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
     onUpdateCommitment: ((ExpenseCommitment) -> Unit)? = null
@@ -447,7 +488,7 @@ fun InstallmentsScheduleDialog(
                                             if (isChecked) {
                                                 pendingCuotaToPay = inst
                                             } else {
-                                                onToggleInstallment(inst.number, false, null, null)
+                                                onToggleInstallment(inst.number, false, null, null, null)
                                             }
                                         },
                                         modifier = Modifier.testTag("toggle_inst_${inst.number}")
@@ -520,6 +561,15 @@ fun InstallmentsScheduleDialog(
                                             fontSize = 10.sp
                                         )
                                     }
+                                    if (commCurrency != paymentCurrency && paymentCurrency != displayCurrency) {
+                                        val amountInPay = rates.convert(inst.amount, commCurrency, paymentCurrency)
+                                        Text(
+                                            text = "Pago: ${formatCurrency(amountInPay, paymentCurrency.symbol)}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = TextSecondaryDark,
+                                            fontSize = 10.sp
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -544,9 +594,12 @@ fun InstallmentsScheduleDialog(
                 dueDate = cuota.dueDate.toDate(),
                 accounts = accounts,
                 isIncome = false,
+                rates = rates,
+                displayCurrency = displayCurrency,
+                paymentCurrency = paymentCurrency,
                 onDismiss = { pendingCuotaToPay = null },
-                onConfirm = { account, paidDate, amount, notes ->
-                    onToggleInstallment(cuota.number, true, account, paidDate)
+                onConfirm = { account, paidDate, amount, _ ->
+                    onToggleInstallment(cuota.number, true, account, paidDate, amount)
                     pendingCuotaToPay = null
                 }
             )
@@ -705,6 +758,8 @@ fun TransferSavingsDialog(
     accounts: List<Account>,
     suggestedAmount: Double,
     displayCurrency: AppCurrency,
+    paymentCurrency: AppCurrency = displayCurrency,
+    rates: ExchangeRates = ExchangeRates(),
     onDismiss: () -> Unit,
     onConfirm: (Account, Account, Double) -> Unit
 ) {
@@ -790,7 +845,8 @@ fun TransferSavingsDialog(
                 OutlinedTextField(
                     value = amountText,
                     onValueChange = { amountText = it },
-                    label = { Text("Monto a transferir") },
+                    label = { Text("Monto a transferir (${displayCurrency.displayName})") },
+                    prefix = { Text("${displayCurrency.symbol} ") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
@@ -800,6 +856,27 @@ fun TransferSavingsDialog(
 
                 val fromAcc = fromSource.find { it.id == selectedFromAccountId } ?: fromSource.firstOrNull()
                 val toAcc = toDest.find { it.id == selectedToAccountId } ?: toDest.firstOrNull()
+
+                val parsedPreview = amountText.replace(",", ".").toDoubleOrNull() ?: 0.0
+                if (parsedPreview > 0 && fromAcc != null && toAcc != null) {
+                    val fromCurr = AppCurrency.fromCode(fromAcc.currency)
+                    val toCurr = AppCurrency.fromCode(toAcc.currency)
+                    val fromAmt = rates.convert(parsedPreview, displayCurrency, fromCurr)
+                    val toAmt = rates.convert(parsedPreview, displayCurrency, toCurr)
+                    val payAmt = rates.convert(parsedPreview, displayCurrency, paymentCurrency)
+                    Text(
+                        text = buildString {
+                            append("Sale de ${fromAcc.name}: ${formatCurrency(fromAmt, fromCurr.symbol)} (${fromCurr.code})")
+                            append(" → Entra en ${toAcc.name}: ${formatCurrency(toAmt, toCurr.symbol)} (${toCurr.code})")
+                            if (paymentCurrency != displayCurrency) {
+                                append("\nEquiv. pago (${paymentCurrency.code}): ${formatCurrency(payAmt, paymentCurrency.symbol)}")
+                            }
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = EmeraldLight,
+                        fontSize = 11.sp
+                    )
+                }
 
                 Text("Desde:", style = MaterialTheme.typography.labelSmall, color = TextSecondaryDark)
                 Text(

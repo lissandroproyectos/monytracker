@@ -193,34 +193,97 @@ class FinanceRepository(
             }
     }
 
+    private fun round2(value: Double): Double = kotlin.math.round(value * 100.0) / 100.0
+
+    private suspend fun resolveAccountCurrency(userId: String, accountId: String?): AppCurrency? {
+        if (accountId.isNullOrBlank() || accountId == "EXTERNAL") return null
+        if (isGuest(userId)) {
+            return _localAccounts.value.firstOrNull { it.id == accountId }?.let { AppCurrency.fromCode(it.currency) }
+        }
+        return try {
+            val snap = firestore.collection("users").document(userId).collection("accounts").document(accountId).get().await()
+            val code = snap.getString("currency")
+            code?.let { AppCurrency.fromCode(it) }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun convertToTargetCurrency(
+        amount: Double,
+        from: AppCurrency,
+        to: AppCurrency,
+        rates: ExchangeRates
+    ): Double {
+        if (from == to) return round2(amount)
+        return rates.convert(amount, from, to)
+    }
+
     suspend fun addTransaction(
         userId: String,
         transaction: Transaction,
         rates: ExchangeRates? = null
     ) {
+        val effectiveRates = rates ?: ExchangeRates()
         val txCurrency = AppCurrency.fromCode(transaction.currency)
-        val calculatedBs = rates?.convert(transaction.amount, txCurrency, AppCurrency.VES) ?: 0.0
+        val calculatedBs = effectiveRates.convert(transaction.amount, txCurrency, AppCurrency.VES)
+
+        val originAccCurrency = resolveAccountCurrency(userId, transaction.accountId) ?: txCurrency
+        val originMagnitude = if (
+            transaction.accountDelta != null &&
+            transaction.accountDelta > 0.0 &&
+            transaction.accountCurrency == originAccCurrency.name
+        ) {
+            round2(transaction.accountDelta)
+        } else {
+            convertToTargetCurrency(transaction.amount, txCurrency, originAccCurrency, effectiveRates)
+        }
+
+        val isTransferWithTarget = transaction.type == TransactionType.TRANSFER.name &&
+            !transaction.targetAccountId.isNullOrBlank() &&
+            transaction.targetAccountId != "EXTERNAL"
+        val targetAccCurrency = if (isTransferWithTarget) {
+            resolveAccountCurrency(userId, transaction.targetAccountId) ?: txCurrency
+        } else null
+        val targetMagnitude = if (isTransferWithTarget && targetAccCurrency != null) {
+            if (
+                transaction.targetAccountDelta != null &&
+                transaction.targetAccountDelta > 0.0 &&
+                transaction.targetAccountCurrency == targetAccCurrency.name
+            ) {
+                round2(transaction.targetAccountDelta)
+            } else {
+                convertToTargetCurrency(transaction.amount, txCurrency, targetAccCurrency, effectiveRates)
+            }
+        } else null
+
+        val enrichedTx = transaction.copy(
+            amountInBs = calculatedBs,
+            accountDelta = if (transaction.accountId.isNotBlank() && transaction.accountId != "EXTERNAL") originMagnitude else null,
+            accountCurrency = if (transaction.accountId.isNotBlank() && transaction.accountId != "EXTERNAL") originAccCurrency.name else null,
+            targetAccountDelta = targetMagnitude,
+            targetAccountCurrency = targetAccCurrency?.name
+        )
 
         if (isGuest(userId)) {
-            val genId = if (transaction.id.isNotBlank()) transaction.id else UUID.randomUUID().toString()
-            val newTx = transaction.copy(id = genId, userId = "local_guest", amountInBs = calculatedBs)
+            val genId = if (enrichedTx.id.isNotBlank()) enrichedTx.id else UUID.randomUUID().toString()
+            val newTx = enrichedTx.copy(id = genId, userId = "local_guest")
             _localTransactions.value = listOf(newTx) + _localTransactions.value
 
-            // Update originating account balance
-            val delta = when (transaction.type) {
-                TransactionType.INCOME.name -> transaction.amount
-                TransactionType.EXPENSE.name -> -transaction.amount
-                TransactionType.TRANSFER.name -> -transaction.amount
+            val delta = when (newTx.type) {
+                TransactionType.INCOME.name -> originMagnitude
+                TransactionType.EXPENSE.name -> -originMagnitude
+                TransactionType.TRANSFER.name -> -originMagnitude
                 else -> 0.0
             }
-            if (delta != 0.0) {
+            if (delta != 0.0 && newTx.accountId.isNotBlank() && newTx.accountId != "EXTERNAL") {
                 _localAccounts.value = _localAccounts.value.map { acc ->
-                    if (acc.id == transaction.accountId) acc.copy(currentBalance = acc.currentBalance + delta) else acc
+                    if (acc.id == newTx.accountId) acc.copy(currentBalance = round2(acc.currentBalance + delta)) else acc
                 }
             }
-            if (transaction.type == TransactionType.TRANSFER.name && !transaction.targetAccountId.isNullOrBlank()) {
+            if (isTransferWithTarget && targetMagnitude != null) {
                 _localAccounts.value = _localAccounts.value.map { acc ->
-                    if (acc.id == transaction.targetAccountId) acc.copy(currentBalance = acc.currentBalance + transaction.amount) else acc
+                    if (acc.id == newTx.targetAccountId) acc.copy(currentBalance = round2(acc.currentBalance + targetMagnitude)) else acc
                 }
             }
             persistLocalGuestData()
@@ -228,47 +291,78 @@ class FinanceRepository(
         }
 
         val docRef = firestore.collection("users").document(userId).collection("transactions").document()
-        val transactionWithId = transaction.copy(
+        val transactionWithId = enrichedTx.copy(
             id = docRef.id,
-            userId = userId,
-            amountInBs = calculatedBs
+            userId = userId
         )
         docRef.set(transactionWithId.toMap()).await()
 
-        val delta = when (transaction.type) {
-            TransactionType.INCOME.name -> transaction.amount
-            TransactionType.EXPENSE.name -> -transaction.amount
-            TransactionType.TRANSFER.name -> -transaction.amount
+        val delta = when (transactionWithId.type) {
+            TransactionType.INCOME.name -> originMagnitude
+            TransactionType.EXPENSE.name -> -originMagnitude
+            TransactionType.TRANSFER.name -> -originMagnitude
             else -> 0.0
         }
-        if (delta != 0.0 && transaction.accountId.isNotBlank() && transaction.accountId != "EXTERNAL") {
-            val accountDoc = firestore.collection("users").document(userId).collection("accounts").document(transaction.accountId)
+        if (delta != 0.0 && transactionWithId.accountId.isNotBlank() && transactionWithId.accountId != "EXTERNAL") {
+            val accountDoc = firestore.collection("users").document(userId).collection("accounts").document(transactionWithId.accountId)
             accountDoc.update("currentBalance", FieldValue.increment(delta)).await()
         }
 
-        if (transaction.type == TransactionType.TRANSFER.name && !transaction.targetAccountId.isNullOrBlank() && transaction.targetAccountId != "EXTERNAL") {
-            val targetDoc = firestore.collection("users").document(userId).collection("accounts").document(transaction.targetAccountId)
-            targetDoc.update("currentBalance", FieldValue.increment(transaction.amount)).await()
+        if (isTransferWithTarget && targetMagnitude != null && !transactionWithId.targetAccountId.isNullOrBlank()) {
+            val targetDoc = firestore.collection("users").document(userId).collection("accounts").document(transactionWithId.targetAccountId)
+            targetDoc.update("currentBalance", FieldValue.increment(targetMagnitude)).await()
         }
     }
 
-    suspend fun deleteTransaction(userId: String, transaction: Transaction) {
+    suspend fun deleteTransaction(
+        userId: String,
+        transaction: Transaction,
+        rates: ExchangeRates? = null
+    ) {
+        val effectiveRates = rates ?: ExchangeRates()
+        val txCurrency = AppCurrency.fromCode(transaction.currency)
+
+        // Respect origin currency: restore exact stored accountDelta in its origin currency if available
+        val originAccCurrency = resolveAccountCurrency(userId, transaction.accountId)
+        val storedOriginMagnitude = transaction.accountDelta?.takeIf { it > 0.0 } ?: transaction.amount
+        val storedOriginCurrency = AppCurrency.fromCode(transaction.accountCurrency ?: transaction.currency)
+        val originRevertMagnitude = if (originAccCurrency != null) {
+            convertToTargetCurrency(storedOriginMagnitude, storedOriginCurrency, originAccCurrency, effectiveRates)
+        } else {
+            round2(storedOriginMagnitude)
+        }
+
+        val revertDelta = when (transaction.type) {
+            TransactionType.INCOME.name -> -originRevertMagnitude
+            TransactionType.EXPENSE.name -> originRevertMagnitude
+            TransactionType.TRANSFER.name -> originRevertMagnitude
+            else -> 0.0
+        }
+
+        val isTransferWithTarget = transaction.type == TransactionType.TRANSFER.name &&
+            !transaction.targetAccountId.isNullOrBlank() &&
+            transaction.targetAccountId != "EXTERNAL"
+        val targetRevertMagnitude = if (isTransferWithTarget) {
+            val targetAccCurrency = resolveAccountCurrency(userId, transaction.targetAccountId)
+            val storedTargetMagnitude = transaction.targetAccountDelta?.takeIf { it > 0.0 } ?: transaction.amount
+            val storedTargetCurrency = AppCurrency.fromCode(transaction.targetAccountCurrency ?: txCurrency.name)
+            if (targetAccCurrency != null) {
+                convertToTargetCurrency(storedTargetMagnitude, storedTargetCurrency, targetAccCurrency, effectiveRates)
+            } else {
+                round2(storedTargetMagnitude)
+            }
+        } else 0.0
+
         if (isGuest(userId)) {
             _localTransactions.value = _localTransactions.value.filter { it.id != transaction.id }
-            val revertDelta = when (transaction.type) {
-                TransactionType.INCOME.name -> -transaction.amount
-                TransactionType.EXPENSE.name -> transaction.amount
-                TransactionType.TRANSFER.name -> transaction.amount
-                else -> 0.0
-            }
             if (revertDelta != 0.0 && transaction.accountId.isNotBlank() && transaction.accountId != "EXTERNAL") {
                 _localAccounts.value = _localAccounts.value.map { acc ->
-                    if (acc.id == transaction.accountId) acc.copy(currentBalance = acc.currentBalance + revertDelta) else acc
+                    if (acc.id == transaction.accountId) acc.copy(currentBalance = round2(acc.currentBalance + revertDelta)) else acc
                 }
             }
-            if (transaction.type == TransactionType.TRANSFER.name && !transaction.targetAccountId.isNullOrBlank() && transaction.targetAccountId != "EXTERNAL") {
+            if (isTransferWithTarget && targetRevertMagnitude != 0.0) {
                 _localAccounts.value = _localAccounts.value.map { acc ->
-                    if (acc.id == transaction.targetAccountId) acc.copy(currentBalance = acc.currentBalance - transaction.amount) else acc
+                    if (acc.id == transaction.targetAccountId) acc.copy(currentBalance = round2(acc.currentBalance - targetRevertMagnitude)) else acc
                 }
             }
             persistLocalGuestData()
@@ -276,19 +370,13 @@ class FinanceRepository(
         }
 
         firestore.collection("users").document(userId).collection("transactions").document(transaction.id).delete().await()
-        val revertDelta = when (transaction.type) {
-            TransactionType.INCOME.name -> -transaction.amount
-            TransactionType.EXPENSE.name -> transaction.amount
-            TransactionType.TRANSFER.name -> transaction.amount
-            else -> 0.0
-        }
         if (revertDelta != 0.0 && transaction.accountId.isNotBlank() && transaction.accountId != "EXTERNAL") {
             val accountDoc = firestore.collection("users").document(userId).collection("accounts").document(transaction.accountId)
             accountDoc.update("currentBalance", FieldValue.increment(revertDelta)).await()
         }
-        if (transaction.type == TransactionType.TRANSFER.name && !transaction.targetAccountId.isNullOrBlank() && transaction.targetAccountId != "EXTERNAL") {
+        if (isTransferWithTarget && targetRevertMagnitude != 0.0 && !transaction.targetAccountId.isNullOrBlank()) {
             val targetDoc = firestore.collection("users").document(userId).collection("accounts").document(transaction.targetAccountId)
-            targetDoc.update("currentBalance", FieldValue.increment(-transaction.amount)).await()
+            targetDoc.update("currentBalance", FieldValue.increment(-targetRevertMagnitude)).await()
         }
     }
 
@@ -298,42 +386,76 @@ class FinanceRepository(
         newTransaction: Transaction,
         rates: ExchangeRates? = null
     ) {
-        val txCurrency = AppCurrency.fromCode(newTransaction.currency)
-        val calculatedBs = rates?.convert(newTransaction.amount, txCurrency, AppCurrency.VES) ?: 0.0
+        val effectiveRates = rates ?: ExchangeRates()
+        val newTxCurrency = AppCurrency.fromCode(newTransaction.currency)
+        val calculatedBs = effectiveRates.convert(newTransaction.amount, newTxCurrency, AppCurrency.VES)
+
+        // Compute exact new account-native deltas
+        val newOriginCurrency = resolveAccountCurrency(userId, newTransaction.accountId) ?: newTxCurrency
+        val newOriginMagnitude = convertToTargetCurrency(newTransaction.amount, newTxCurrency, newOriginCurrency, effectiveRates)
+
+        val newIsTransferWithTarget = newTransaction.type == TransactionType.TRANSFER.name &&
+            !newTransaction.targetAccountId.isNullOrBlank() &&
+            newTransaction.targetAccountId != "EXTERNAL"
+        val newTargetCurrency = if (newIsTransferWithTarget) {
+            resolveAccountCurrency(userId, newTransaction.targetAccountId) ?: newTxCurrency
+        } else null
+        val newTargetMagnitude = if (newIsTransferWithTarget && newTargetCurrency != null) {
+            convertToTargetCurrency(newTransaction.amount, newTxCurrency, newTargetCurrency, effectiveRates)
+        } else null
 
         val updatedTx = newTransaction.copy(
             id = oldTransaction.id,
             userId = if (isGuest(userId)) "local_guest" else userId,
             amountInBs = calculatedBs,
             commitmentId = newTransaction.commitmentId ?: oldTransaction.commitmentId,
+            accountDelta = if (newTransaction.accountId.isNotBlank() && newTransaction.accountId != "EXTERNAL") newOriginMagnitude else null,
+            accountCurrency = if (newTransaction.accountId.isNotBlank() && newTransaction.accountId != "EXTERNAL") newOriginCurrency.name else null,
+            targetAccountDelta = newTargetMagnitude,
+            targetAccountCurrency = newTargetCurrency?.name,
             createdAt = oldTransaction.createdAt ?: newTransaction.createdAt
         )
 
-        // Compute net balance changes per accountId (revert old + apply new)
+        // Compute net balance changes per accountId (revert old in its origin currency + apply new in its account currency)
         val netAccountDeltas = mutableMapOf<String, Double>()
         fun addDelta(accountId: String?, delta: Double) {
             if (!accountId.isNullOrBlank() && accountId != "EXTERNAL" && delta != 0.0) {
-                netAccountDeltas[accountId] = (netAccountDeltas[accountId] ?: 0.0) + delta
+                netAccountDeltas[accountId] = round2((netAccountDeltas[accountId] ?: 0.0) + delta)
             }
         }
 
-        // Revert old transaction impact
+        // Revert old transaction impact in old account's origin currency
+        val oldOriginAccCurrency = resolveAccountCurrency(userId, oldTransaction.accountId)
+        val oldOriginStoredMag = oldTransaction.accountDelta?.takeIf { it > 0.0 } ?: oldTransaction.amount
+        val oldOriginStoredCurr = AppCurrency.fromCode(oldTransaction.accountCurrency ?: oldTransaction.currency)
+        val oldOriginRevertMag = if (oldOriginAccCurrency != null) {
+            convertToTargetCurrency(oldOriginStoredMag, oldOriginStoredCurr, oldOriginAccCurrency, effectiveRates)
+        } else round2(oldOriginStoredMag)
+
         when (oldTransaction.type) {
-            TransactionType.INCOME.name -> addDelta(oldTransaction.accountId, -oldTransaction.amount)
-            TransactionType.EXPENSE.name -> addDelta(oldTransaction.accountId, oldTransaction.amount)
+            TransactionType.INCOME.name -> addDelta(oldTransaction.accountId, -oldOriginRevertMag)
+            TransactionType.EXPENSE.name -> addDelta(oldTransaction.accountId, oldOriginRevertMag)
             TransactionType.TRANSFER.name -> {
-                addDelta(oldTransaction.accountId, oldTransaction.amount)
-                addDelta(oldTransaction.targetAccountId, -oldTransaction.amount)
+                addDelta(oldTransaction.accountId, oldOriginRevertMag)
+                val oldTargetAccCurr = resolveAccountCurrency(userId, oldTransaction.targetAccountId)
+                val oldTargetStoredMag = oldTransaction.targetAccountDelta?.takeIf { it > 0.0 } ?: oldTransaction.amount
+                val oldTargetStoredCurr = AppCurrency.fromCode(oldTransaction.targetAccountCurrency ?: oldTransaction.currency)
+                val oldTargetRevertMag = if (oldTargetAccCurr != null) {
+                    convertToTargetCurrency(oldTargetStoredMag, oldTargetStoredCurr, oldTargetAccCurr, effectiveRates)
+                } else round2(oldTargetStoredMag)
+                addDelta(oldTransaction.targetAccountId, -oldTargetRevertMag)
             }
         }
 
         // Apply new transaction impact
         when (updatedTx.type) {
-            TransactionType.INCOME.name -> addDelta(updatedTx.accountId, updatedTx.amount)
-            TransactionType.EXPENSE.name -> addDelta(updatedTx.accountId, -updatedTx.amount)
+            TransactionType.INCOME.name -> addDelta(updatedTx.accountId, newOriginMagnitude)
+            TransactionType.EXPENSE.name -> addDelta(updatedTx.accountId, -newOriginMagnitude)
             TransactionType.TRANSFER.name -> {
-                addDelta(updatedTx.accountId, -updatedTx.amount)
-                addDelta(updatedTx.targetAccountId, updatedTx.amount)
+                addDelta(updatedTx.accountId, -newOriginMagnitude)
+                if (newTargetMagnitude != null) {
+                    addDelta(updatedTx.targetAccountId, newTargetMagnitude)
+                }
             }
         }
 
@@ -346,7 +468,7 @@ class FinanceRepository(
                 _localAccounts.value = _localAccounts.value.map { acc ->
                     val delta = netAccountDeltas[acc.id] ?: 0.0
                     if (kotlin.math.abs(delta) > 0.0001) {
-                        acc.copy(currentBalance = kotlin.math.round((acc.currentBalance + delta) * 100.0) / 100.0)
+                        acc.copy(currentBalance = round2(acc.currentBalance + delta))
                     } else acc
                 }
             }
@@ -489,7 +611,8 @@ class FinanceRepository(
         markAsPaid: Boolean,
         payFromAccount: Account? = null,
         rates: ExchangeRates? = null,
-        paidDate: Date? = null
+        paidDate: Date? = null,
+        paidAmount: Double? = null
     ) {
         val currentInstallments = commitment.getProjectedInstallments().toMutableList()
         val index = currentInstallments.indexOfFirst { it.number == installmentNumber }
@@ -499,9 +622,11 @@ class FinanceRepository(
         if (target.isPaid == markAsPaid) return
 
         val effectivePaidDate = paidDate ?: Date()
+        val effectiveAmount = if (markAsPaid && paidAmount != null && paidAmount > 0.0) round2(paidAmount) else target.amount
         val updatedInstallment = target.copy(
             isPaid = markAsPaid,
-            paidDate = if (markAsPaid) Timestamp(effectivePaidDate) else null
+            paidDate = if (markAsPaid) Timestamp(effectivePaidDate) else null,
+            amount = effectiveAmount
         )
         currentInstallments[index] = updatedInstallment
 
@@ -522,7 +647,7 @@ class FinanceRepository(
                 userId = userId,
                 accountId = payFromAccount.id,
                 type = TransactionType.EXPENSE.name,
-                amount = target.amount,
+                amount = effectiveAmount,
                 currency = commitment.currency,
                 category = commitment.category,
                 description = "Cuota $installmentNumber/${commitment.totalInstallments}: ${commitment.title}",
@@ -531,6 +656,29 @@ class FinanceRepository(
                 isFixedExpense = commitment.isFixedExpense
             )
             addTransaction(userId, tx, rates)
+        } else if (!markAsPaid) {
+            // Return money to its original paying account in its origin currency when unmarking as paid
+            val linkedTx = if (isGuest(userId)) {
+                _localTransactions.value.firstOrNull { tx ->
+                    tx.commitmentId == commitment.id && tx.description.contains("Cuota $installmentNumber/")
+                }
+            } else {
+                try {
+                    val snap = firestore.collection("users").document(userId)
+                        .collection("transactions")
+                        .whereEqualTo("commitmentId", commitment.id)
+                        .get()
+                        .await()
+                    snap.documents
+                        .mapNotNull { it.toObject(Transaction::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) }
+                        .firstOrNull { it.description.contains("Cuota $installmentNumber/") }
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            if (linkedTx != null) {
+                deleteTransaction(userId, linkedTx, rates)
+            }
         }
     }
 

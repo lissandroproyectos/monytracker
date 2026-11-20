@@ -31,6 +31,10 @@ data class Transaction(
     val date: Timestamp = Timestamp.now(),
     val notes: String? = null,
     val commitmentId: String? = null,
+    val accountDelta: Double? = null,
+    val accountCurrency: String? = null,
+    val targetAccountDelta: Double? = null,
+    val targetAccountCurrency: String? = null,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 ) {
@@ -50,6 +54,10 @@ data class Transaction(
             "date" to date,
             "notes" to notes,
             "commitmentId" to commitmentId,
+            "accountDelta" to accountDelta,
+            "accountCurrency" to accountCurrency,
+            "targetAccountDelta" to targetAccountDelta,
+            "targetAccountCurrency" to targetAccountCurrency,
             "createdAt" to (createdAt ?: FieldValue.serverTimestamp()),
             "updatedAt" to FieldValue.serverTimestamp()
         )
