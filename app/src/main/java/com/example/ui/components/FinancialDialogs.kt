@@ -53,6 +53,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -1333,11 +1334,42 @@ class AddCommitmentState(
     val initialIsFixed: Boolean,
     defaultAccountIdInitial: String
 ) {
+    private val initialBaseAmountText: String = run {
+        if (commitmentToEdit == null) ""
+        else if (commitmentToEdit.isFixedExpense || commitmentToEdit.interestRate <= 0.0) {
+            commitmentToEdit.totalAmount.toString()
+        } else {
+            val freq = Frequency.entries.find { it.name == commitmentToEdit.frequency } ?: Frequency.MONTHLY
+            val totalInst = commitmentToEdit.totalInstallments.coerceAtLeast(1L)
+            val cDays = commitmentToEdit.customDays.coerceAtLeast(1)
+            val termMonths = when (freq) {
+                Frequency.WEEKLY -> (totalInst * 7.0) / 30.0
+                Frequency.CASHEA -> (totalInst * 14.0) / 30.0
+                Frequency.BIWEEKLY -> (totalInst * 15.0) / 30.0
+                Frequency.MONTHLY -> totalInst.toDouble()
+                Frequency.BIMONTHLY -> totalInst.toDouble() * 2.0
+                Frequency.QUARTERLY -> totalInst.toDouble() * 3.0
+                Frequency.FOUR_MONTHLY -> totalInst.toDouble() * 4.0
+                Frequency.SEMIANNUAL -> totalInst.toDouble() * 6.0
+                Frequency.ANNUAL -> totalInst.toDouble() * 12.0
+                Frequency.CUSTOM -> (totalInst * cDays.toDouble()) / 30.0
+            }
+            val effRate = if (commitmentToEdit.isAnnualInterest) {
+                (commitmentToEdit.interestRate / 12.0) * termMonths
+            } else {
+                commitmentToEdit.interestRate * termMonths
+            }
+            val financedWithInt = (commitmentToEdit.totalAmount - commitmentToEdit.downPayment).coerceAtLeast(0.0)
+            val financedBase = if (effRate > 0.0) financedWithInt / (1.0 + effRate / 100.0) else financedWithInt
+            val baseTotal = kotlin.math.round((commitmentToEdit.downPayment + financedBase) * 100.0) / 100.0
+            baseTotal.toString()
+        }
+    }
+
     var title by mutableStateOf(commitmentToEdit?.title ?: prefilledTemplate?.title ?: "")
     var isFixedExpense by mutableStateOf(commitmentToEdit?.isFixedExpense ?: initialIsFixed)
     var commitmentStartDate by mutableStateOf(try { commitmentToEdit?.startDate?.toDate() } catch (e: Exception) { null } ?: Date())
-    var totalAmountText by mutableStateOf(if (commitmentToEdit != null) commitmentToEdit.totalAmount.toString() else "")
-    var hasDownPayment by mutableStateOf((commitmentToEdit?.downPayment ?: 0.0) > 0.0)
+    var totalAmountText by mutableStateOf(initialBaseAmountText)
     var downPaymentText by mutableStateOf(if ((commitmentToEdit?.downPayment ?: 0.0) > 0.0) commitmentToEdit?.downPayment?.toString() ?: "" else "")
     var alreadyPaidCountText by mutableStateOf((commitmentToEdit?.paidInstallments ?: 0L).toString())
     var fixedExpenseDueDate by mutableStateOf(
@@ -1462,7 +1494,8 @@ class AddCommitmentState(
     )
 
     val totalAmount: Double get() = totalAmountText.toDoubleOrNull() ?: 0.0
-    val downPayment: Double get() = if (hasDownPayment) (downPaymentText.toDoubleOrNull() ?: 0.0) else 0.0
+    val downPayment: Double get() = if (hasInstallments) (downPaymentText.toDoubleOrNull() ?: 0.0).coerceAtLeast(0.0) else 0.0
+    val hasDownPayment: Boolean get() = downPayment > 0.0
     val financedBase: Double get() = (totalAmount - downPayment).coerceAtLeast(0.0)
     val rawInterestRate: Double get() = if (applyInterest) (interestRateText.toDoubleOrNull() ?: 0.0) else 0.0
     val totalInstallments: Long get() = if (hasInstallments) (installmentsCountText.toLongOrNull() ?: 1L).coerceAtLeast(1L) else 1L
@@ -1493,6 +1526,13 @@ class AddCommitmentState(
     val totalFinancedWithInterest: Double get() = if (effectiveInterestRate > 0) financedBase * (1.0 + effectiveInterestRate / 100.0) else financedBase
     val totalWithInterest: Double get() = downPayment + totalFinancedWithInterest
     val calculatedInstallmentAmount: Double get() = if (totalInstallments > 0 && totalFinancedWithInterest > 0) kotlin.math.round((totalFinancedWithInterest / totalInstallments) * 100.0) / 100.0 else 0.0
+
+    fun syncCustomScheduleAmounts() {
+        if (!isFixedExpense && customInstallments.isNotEmpty()) {
+            val newAmount = calculatedInstallmentAmount
+            customInstallments = customInstallments.map { it.copy(amount = newAmount) }
+        }
+    }
 
     fun computeActiveSchedule(): List<ProjectedInstallment> {
         return if (customInstallments.isNotEmpty() && customInstallments.size == totalInstallments.toInt()) {
@@ -1537,10 +1577,19 @@ class AddCommitmentState(
         )
         val generated = temp.getProjectedInstallments()
         return if (customFixedInstallments.isNotEmpty()) {
+            val origFixedPaidIndices = commitmentToEdit
+                ?.takeIf { it.isFixedExpense }
+                ?.getProjectedInstallments()
+                ?.mapIndexedNotNull { idx, orig -> if (orig.isPaid) idx else null }
+                ?.toSet()
+                ?: emptySet()
             generated.mapIndexed { idx, p ->
                 val custom = customFixedInstallments.getOrNull(idx)
                 if (custom != null) {
-                    custom.copy(isPaid = custom.isPaid)
+                    val keepHistoricalPaidAmount = custom.isPaid && idx in origFixedPaidIndices
+                    custom.copy(
+                        amount = if (keepHistoricalPaidAmount) custom.amount else p.amount
+                    )
                 } else p
             }
         } else {
@@ -2681,13 +2730,18 @@ fun AddCommitmentDialog(
     onDelete: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
-    val state = remember(commitmentToEdit, prefilledTemplate, initialIsFixed, accounts) {
+    val state = remember(commitmentToEdit, prefilledTemplate, initialIsFixed) {
         AddCommitmentState(
             commitmentToEdit = commitmentToEdit,
             prefilledTemplate = prefilledTemplate,
             initialIsFixed = initialIsFixed,
             defaultAccountIdInitial = accounts.firstOrNull()?.id ?: ""
         )
+    }
+    LaunchedEffect(accounts) {
+        if (state.defaultAccountId.isBlank() && accounts.isNotEmpty()) {
+            state.defaultAccountId = accounts.first().id
+        }
     }
 
     if (state.showTemplatePicker) {
@@ -2919,7 +2973,10 @@ fun AddCommitmentDialog(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = state.totalAmountText,
-                        onValueChange = { state.totalAmountText = it },
+                        onValueChange = {
+                            state.totalAmountText = it
+                            state.syncCustomScheduleAmounts()
+                        },
                         label = { Text(if (state.isFixedExpense) "Monto recurrente" else "Monto Base") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.weight(1.3f).testTag("commitment_total_input"),
@@ -2999,10 +3056,10 @@ fun AddCommitmentDialog(
 
                             if (state.hasInstallments) {
                                 Spacer(Modifier.height(10.dp))
-                                // Cuotas, Frecuencia y Cuotas adelantadas en la misma línea
+                                // Cuotas, Frecuencia, Adelantadas y Cuota Inicial integrados en cuadrícula compacta 2x2
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     OutlinedTextField(
                                         value = state.installmentsCountText,
@@ -3010,7 +3067,7 @@ fun AddCommitmentDialog(
                                             state.installmentsCountText = it
                                             state.customInstallments = emptyList()
                                         },
-                                        label = { Text("Cuotas", fontSize = 11.sp) },
+                                        label = { Text("Cuotas", fontSize = 11.sp, maxLines = 1) },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                         modifier = Modifier.weight(0.9f).testTag("installments_count_input"),
                                         singleLine = true
@@ -3019,7 +3076,7 @@ fun AddCommitmentDialog(
                                     ExposedDropdownMenuBox(
                                         expanded = state.freqExpanded,
                                         onExpandedChange = { state.freqExpanded = it },
-                                        modifier = Modifier.weight(1.3f)
+                                        modifier = Modifier.weight(1.4f)
                                     ) {
                                         OutlinedTextField(
                                             value = when(state.frequency) {
@@ -3036,7 +3093,7 @@ fun AddCommitmentDialog(
                                             },
                                             onValueChange = {},
                                             readOnly = true,
-                                            label = { Text("Frecuencia", fontSize = 11.sp) },
+                                            label = { Text("Frecuencia", fontSize = 11.sp, maxLines = 1) },
                                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = state.freqExpanded) },
                                             modifier = Modifier.menuAnchor().fillMaxWidth(),
                                             singleLine = true
@@ -3057,17 +3114,37 @@ fun AddCommitmentDialog(
                                             }
                                         }
                                     }
+                                }
 
+                                Spacer(Modifier.height(8.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
                                     OutlinedTextField(
                                         value = state.alreadyPaidCountText,
                                         onValueChange = {
                                             state.alreadyPaidCountText = it
                                             state.customInstallments = emptyList()
                                         },
-                                        label = { Text("Adelantadas", fontSize = 11.sp) },
+                                        label = { Text("Adelantadas", fontSize = 11.sp, maxLines = 1) },
                                         placeholder = { Text("0") },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        modifier = Modifier.weight(1f).testTag("already_paid_installments_input"),
+                                        modifier = Modifier.weight(0.9f).testTag("already_paid_installments_input"),
+                                        singleLine = true
+                                    )
+
+                                    OutlinedTextField(
+                                        value = state.downPaymentText,
+                                        onValueChange = {
+                                            state.downPaymentText = it
+                                            state.syncCustomScheduleAmounts()
+                                        },
+                                        label = { Text("Cuota inicial (${state.selectedCurrency.symbol})", fontSize = 11.sp, maxLines = 1) },
+                                        placeholder = { Text("0.00") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                        modifier = Modifier.weight(1.4f).testTag("down_payment_input"),
                                         singleLine = true
                                     )
                                 }
@@ -3087,53 +3164,6 @@ fun AddCommitmentDialog(
                                     Spacer(Modifier.height(8.dp))
                                     PaymentDayConfigSection(state = state)
                                 }
-
-                                Spacer(Modifier.height(10.dp))
-                                // Cuota Inicial opcional dentro de la sección de cuotas
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = SlateBackground,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.padding(10.dp)) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.fillMaxWidth().clickable { state.hasDownPayment = !state.hasDownPayment }
-                                        ) {
-                                            Checkbox(
-                                                checked = state.hasDownPayment,
-                                                onCheckedChange = { state.hasDownPayment = it },
-                                                modifier = Modifier.testTag("has_down_payment_checkbox")
-                                            )
-                                            Spacer(Modifier.width(8.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = "¿Pagaste o pagarás una cuota inicial?",
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = TextPrimaryDark
-                                                )
-                                                Text(
-                                                    text = if (state.hasDownPayment) "Se descuenta antes de financiar cuotas" else "Sin inicial (100% financiado)",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = if (state.hasDownPayment) EmeraldLight else TextSecondaryDark,
-                                                    fontSize = 11.sp
-                                                )
-                                            }
-                                        }
-                                        if (state.hasDownPayment) {
-                                            Spacer(Modifier.height(8.dp))
-                                            OutlinedTextField(
-                                                value = state.downPaymentText,
-                                                onValueChange = { state.downPaymentText = it },
-                                                label = { Text("Monto de la Cuota Inicial") },
-                                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                                modifier = Modifier.fillMaxWidth().testTag("down_payment_input"),
-                                                singleLine = true
-                                            )
-                                        }
-                                    }
-                                }
                             }
                         }
                     }
@@ -3149,11 +3179,17 @@ fun AddCommitmentDialog(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { state.applyInterest = !state.applyInterest }
+                                    .clickable {
+                                        state.applyInterest = !state.applyInterest
+                                        state.syncCustomScheduleAmounts()
+                                    }
                             ) {
                                 Checkbox(
                                     checked = state.applyInterest,
-                                    onCheckedChange = { state.applyInterest = it },
+                                    onCheckedChange = {
+                                        state.applyInterest = it
+                                        state.syncCustomScheduleAmounts()
+                                    },
                                     modifier = Modifier.testTag("apply_interest_checkbox")
                                 )
                                 Spacer(Modifier.width(8.dp))
@@ -3182,7 +3218,10 @@ fun AddCommitmentDialog(
                                 ) {
                                     OutlinedTextField(
                                         value = state.interestRateText,
-                                        onValueChange = { state.interestRateText = it },
+                                        onValueChange = {
+                                            state.interestRateText = it
+                                            state.syncCustomScheduleAmounts()
+                                        },
                                         label = { Text("Tasa de Interés (%)") },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                         modifier = Modifier.weight(1.2f).testTag("commitment_interest_input"),
@@ -3194,7 +3233,10 @@ fun AddCommitmentDialog(
                                         color = if (!state.isAnnualInterest) EmeraldPrimary else SlateBackground,
                                         modifier = Modifier
                                             .weight(1f)
-                                            .clickable { state.isAnnualInterest = false }
+                                            .clickable {
+                                                state.isAnnualInterest = false
+                                                state.syncCustomScheduleAmounts()
+                                            }
                                     ) {
                                         Text(
                                             text = "Mensual",
@@ -3211,7 +3253,10 @@ fun AddCommitmentDialog(
                                         color = if (state.isAnnualInterest) EmeraldPrimary else SlateBackground,
                                         modifier = Modifier
                                             .weight(1f)
-                                            .clickable { state.isAnnualInterest = true }
+                                            .clickable {
+                                                state.isAnnualInterest = true
+                                                state.syncCustomScheduleAmounts()
+                                            }
                                     ) {
                                         Text(
                                             text = "Anual",
@@ -3228,7 +3273,7 @@ fun AddCommitmentDialog(
                     }
 
                     // Resumen de cálculo
-                    if (state.calculatedInstallmentAmount > 0) {
+                    if (state.totalAmount > 0) {
                         val freqDesc = if (state.frequency == Frequency.CUSTOM) "cada ${state.customDays} días" else "cada ${state.frequency.displayName.lowercase()}"
                         Surface(
                             color = EmeraldDark.copy(alpha = 0.25f),
